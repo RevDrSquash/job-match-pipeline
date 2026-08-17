@@ -1,0 +1,116 @@
+{
+  "version": "v1",
+  "suite": "retrieval",
+  "labeler": "sample",
+  "notes": "Exhaustive binary relevance for one test profile against a small corpus. First real cut replaces this corpus with the ~500-posting seed (docs/OPEN_ISSUES.md §2). relevant=true means the human would want this job surfaced. Jobs that metadata filters drop are the watch case — they still count against recall.",
+  "k": 5,
+  "profile": {
+    "id": "test-profile-alex",
+    "title_families": ["Backend"],
+    "locations": ["Remote", "Vancouver"],
+    "comp_floor": 140000,
+    "work_arrangement": ["remote"],
+    "seniority_band": "mid,senior,staff",
+    "skill_ids": [
+      "esco:python",
+      "esco:postgresql",
+      "esco:docker",
+      "esco:kubernetes",
+      "esco:aws",
+      "esco:terraform"
+    ],
+    "synthesized_doc": "Title: Senior Backend Engineer\nSeniority: senior\nSkills: Python; PostgreSQL; Docker; Kubernetes; Amazon Web Services; Terraform\nHard requirements: production Python; PostgreSQL schema design\nCompensation: 140000+"
+  },
+  "corpus": [
+    {
+      "id": "rel-senior-backend",
+      "title": "Senior Backend Engineer",
+      "location": "Remote (Canada)",
+      "work_arrangement": "remote",
+      "comp_min": 160000,
+      "comp_max": 200000,
+      "skill_ids": ["esco:python", "esco:postgresql", "esco:aws"],
+      "synthesized_doc": "Title: Senior Backend Engineer\nSeniority: senior\nSkills: Python; PostgreSQL; Amazon Web Services\nHard requirements: production Python; PostgreSQL schema design\nCompensation: 160000-200000",
+      "relevant": true
+    },
+    {
+      "id": "rel-platform-backend",
+      "title": "Backend Platform Engineer",
+      "location": "Vancouver, BC",
+      "work_arrangement": "remote",
+      "comp_min": 150000,
+      "comp_max": 190000,
+      "skill_ids": ["esco:python", "esco:kubernetes", "esco:aws"],
+      "synthesized_doc": "Title: Backend Platform Engineer\nSeniority: senior\nSkills: Python; Kubernetes; Amazon Web Services; Docker\nHard requirements: Kubernetes; production Python\nCompensation: 150000-190000",
+      "relevant": true
+    },
+    {
+      "id": "rel-data-backend",
+      "title": "Backend Engineer, Data",
+      "location": "Remote",
+      "work_arrangement": "remote",
+      "comp_min": 180000,
+      "comp_max": 210000,
+      "skill_ids": ["esco:python", "esco:postgresql", "esco:etl"],
+      "synthesized_doc": "Title: Backend Engineer, Data\nSeniority: senior\nSkills: Python; PostgreSQL; ETL\nHard requirements: Python data pipelines; PostgreSQL\nCompensation: 180000-210000",
+      "relevant": true
+    },
+    {
+      "id": "irrel-frontend",
+      "title": "Senior Frontend Engineer",
+      "location": "Remote",
+      "work_arrangement": "remote",
+      "comp_min": 160000,
+      "comp_max": 190000,
+      "skill_ids": ["esco:react", "esco:typescript", "esco:css"],
+      "synthesized_doc": "Title: Senior Frontend Engineer\nSeniority: senior\nSkills: React; TypeScript; CSS\nHard requirements: React component systems\nCompensation: 160000-190000",
+      "relevant": false
+    },
+    {
+      "id": "drop-comp-floor",
+      "title": "Backend Engineer",
+      "location": "Remote",
+      "work_arrangement": "remote",
+      "comp_min": 90000,
+      "comp_max": 110000,
+      "skill_ids": ["esco:python", "esco:postgresql"],
+      "synthesized_doc": "Title: Backend Engineer\nSeniority: junior\nSkills: Python; PostgreSQL\nCompensation: 90000-110000",
+      "relevant": true,
+      "note": "Semantically relevant but ATS comp_min is below the profile floor — metadata should drop it."
+    },
+    {
+      "id": "drop-onsite-nyc",
+      "title": "Backend Engineer",
+      "location": "New York, NY",
+      "work_arrangement": "onsite",
+      "comp_min": 180000,
+      "comp_max": 220000,
+      "skill_ids": ["esco:python", "esco:aws"],
+      "synthesized_doc": "Title: Backend Engineer\nSkills: Python; Amazon Web Services\nCompensation: 180000-220000",
+      "relevant": false
+    },
+    {
+      "id": "drop-title-sre",
+      "title": "Staff Site Reliability Engineer",
+      "location": "Remote",
+      "work_arrangement": "remote",
+      "comp_min": 190000,
+      "comp_max": 230000,
+      "skill_ids": ["esco:kubernetes", "esco:aws", "esco:terraform"],
+      "synthesized_doc": "Title: Staff Site Reliability Engineer\nSkills: Kubernetes; Amazon Web Services; Terraform\nCompensation: 190000-230000",
+      "relevant": true,
+      "note": "Relevant platform work, but title_families=['Backend'] drops titles that do not contain 'Backend'."
+    },
+    {
+      "id": "irrel-product",
+      "title": "Product Manager",
+      "location": "Remote",
+      "work_arrangement": "remote",
+      "comp_min": 160000,
+      "comp_max": 200000,
+      "skill_ids": ["esco:product-management"],
+      "synthesized_doc": "Title: Product Manager\nSkills: Product management\nCompensation: 160000-200000",
+      "relevant": false
+    }
+  ]
+}

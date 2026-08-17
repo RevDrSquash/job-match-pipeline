@@ -21,6 +21,13 @@ Evaluation Strategy specifies "a fixed corpus (a few thousand postings) with exh
 
 **Resolution:** run recall@K against the ~500-posting seed as the first cut; treat the few-thousand-posting exhaustively-labeled corpus as a follow-up before scale-up. No doc change needed beyond this note.
 
+**Harness (DEF-24):** `jobmatch evals run --suite retrieval` ships with a
+tiny sample corpus in `evals/sets/v1/retrieval/` so the runner works without
+a labeled seed. Replace that corpus with exhaustive labels on the ~500
+seed postings before treating the number as a quality signal. The runner
+warns (and can refuse with `--require-gemini-embeddings`) when
+`EMBEDDING_PROVIDER=hashing`.
+
 ## 3. Queue list omits `fetch-link-list` and `match-batch`
 
 The Queues table in Tasks and Handlers lists five queues but both Scheduler-triggered handlers (`fetch-link-list`, `match-batch`) are absent. Presumably Cloud Scheduler invokes them directly over HTTP (OIDC) without a queue in between, but this is never stated. Irrelevant locally (the local `TaskQueue` posts to handlers directly); decide and document before the Terraform work.

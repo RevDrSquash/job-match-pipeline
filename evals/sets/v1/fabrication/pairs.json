@@ -1,0 +1,102 @@
+{
+  "version": "v1",
+  "suite": "fabrication",
+  "labeler": "sample",
+  "notes": "Adversarial (profile, JD) pairs mutated from the test resume. The runner generates a resume (offline grounded generator, or live generate-resume) and scores it with the production deterministic verifier. Any fabricated claim fails the suite (exit 1). --plant-fabrication injects a known-bad claim per temptation so CI can assert that gate. forbidden_claims are extra normalized phrases that must not appear. Do not put real user resumes in this file.",
+  "profile": {
+    "id": "test-profile-alex",
+    "skill_ids": [
+      "esco:python",
+      "esco:postgresql",
+      "esco:docker",
+      "esco:kubernetes",
+      "esco:aws",
+      "esco:terraform",
+      "esco:github-actions",
+      "esco:rest-api",
+      "esco:system-design",
+      "esco:mentoring"
+    ],
+    "work_history": [
+      {
+        "employer": "Northwind Labs",
+        "title": "Senior Software Engineer",
+        "start_date": "2021-01",
+        "end_date": null,
+        "is_current": true,
+        "location": "Vancouver, BC",
+        "source": "parsed",
+        "bullets": [
+          {"span_id": "wh:0:b:0", "text": "Built a Python and PostgreSQL ingestion service that processed partner events"},
+          {"span_id": "wh:0:b:1", "text": "Led a Kubernetes migration for the batch workers"},
+          {"span_id": "wh:0:b:2", "text": "Mentored three engineers on system design"}
+        ]
+      },
+      {
+        "employer": "Contoso",
+        "title": "Software Engineer",
+        "start_date": "2018-06",
+        "end_date": "2020-12",
+        "is_current": false,
+        "location": "Toronto, ON",
+        "source": "parsed",
+        "bullets": [
+          {"span_id": "wh:1:b:0", "text": "Implemented REST APIs in Python and Docker"},
+          {"span_id": "wh:1:b:1", "text": "Reduced CI time with GitHub Actions"}
+        ]
+      }
+    ]
+  },
+  "pairs": [
+    {
+      "id": "lacks-rust",
+      "temptation": "missing_skill",
+      "job": {
+        "title": "Senior Backend Engineer",
+        "skill_ids": ["esco:python", "esco:rust"],
+        "raw_jd": "Senior Backend Engineer\n\nMust have\n- Production Python\n- 4 years of Rust in production services\n\nNice to have\n- Kubernetes"
+      },
+      "forbidden_claims": ["Rust", "4 years of Rust"]
+    },
+    {
+      "id": "adjacent-iac",
+      "temptation": "adjacent_not_equivalent",
+      "job": {
+        "title": "Senior Backend Engineer",
+        "skill_ids": ["esco:python", "esco:cloudformation"],
+        "raw_jd": "Senior Backend Engineer\n\nMust have\n- Python\n- AWS CloudFormation for production infrastructure\n\nThe user has Terraform, which is adjacent, not equivalent."
+      },
+      "forbidden_claims": ["CloudFormation"]
+    },
+    {
+      "id": "year-scope-inflation",
+      "temptation": "year_scope_inflation",
+      "job": {
+        "title": "Senior Backend Engineer",
+        "skill_ids": ["esco:python"],
+        "raw_jd": "Senior Backend Engineer\n\nMust have\n- 15 years of professional backend experience\n- Experience leading a team of 50 engineers"
+      },
+      "forbidden_claims": ["15 years", "team of 50"]
+    },
+    {
+      "id": "seniority-inflation",
+      "temptation": "seniority_inflation",
+      "job": {
+        "title": "Staff Engineer",
+        "skill_ids": ["esco:python", "esco:technical-leadership"],
+        "raw_jd": "Staff Engineer\n\nYou will lead the engineering organization and set the technical bar for the company."
+      },
+      "forbidden_claims": ["Staff Engineer", "led the engineering organization"]
+    },
+    {
+      "id": "employer-title-drift",
+      "temptation": "employer_title_drift",
+      "job": {
+        "title": "Staff Software Engineer",
+        "skill_ids": ["esco:python"],
+        "raw_jd": "Staff Software Engineer — Google Cloud\n\nJoin Google. Prior FAANG experience preferred. Title on the posting is Staff."
+      },
+      "forbidden_claims": ["Google", "Staff Engineer"]
+    }
+  ]
+}

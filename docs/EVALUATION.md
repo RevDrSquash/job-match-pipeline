@@ -1,6 +1,9 @@
 # Evaluation Strategy
 
-> **Status: preliminary.** Structure agreed, nothing built. Thresholds below are placeholders to be replaced with measured baselines.
+> **Status: harness shipped (DEF-24).** The four non-negotiable suites run via
+> `jobmatch evals run [--suite NAME]`. Label files in `evals/sets/v1/` are
+> **samples** — producing the hand labels is human work. Thresholds below are
+> still placeholders until those labels exist. See `evals/README.md`.
 
 ## Why per-stage, not end-to-end
 
@@ -86,6 +89,29 @@ Hardest to automate, least dangerous failure. Human-rated on a rubric initially 
 ### 9. Model comparison on constrained generation
 
 Separate from raw quality: measure the actual delta between candidate models on *our* constrained generation task (structured skill buckets in, grounded claims out). The perceived gap between frontier models is largest for open-ended writing and narrows considerably under constraint. This number determines whether any compliance or cost tradeoff is worth paying. See Privacy and Compliance.
+
+## Harness (PoC)
+
+`jobmatch evals run` loads a versioned set from `evals/sets/<version>/`,
+records that version on the report, and writes timestamped JSON + a text
+summary under `evals/results/`. Cost and latency are first-class dimensions
+on every suite (token counts and estimated USD when an LLM actually ran).
+
+| Suite | What runs offline | Live path |
+| --- | --- | --- |
+| Extraction | Heuristic section/header parser (baseline) | `JobLLM` when `LLM_API_KEY` is set |
+| Skill linking | Shared `SkillLinker` over the seed taxonomy / `skills` table | same |
+| Retrieval | In-set corpus + metadata predicate + embed + rerank | `EMBEDDING_PROVIDER=gemini` required for a quality number |
+| Fabrication | Grounded copy-only generator + `run_deterministic_checks` | `GenerateLLM` when a key is set |
+
+Retrieval **warns** under `EMBEDDING_PROVIDER=hashing` and **refuses** if
+`--require-gemini-embeddings` is set (`docs/OPEN_ISSUES.md` §6).
+
+Fabrication is a hard gate: any fabricated claim → suite fail → CLI exit 1.
+`--plant-fabrication` injects a known-bad claim per temptation so CI can
+assert that exit code before trusting a live generator. This blocks deploys.
+
+Prompt changes re-run `jobmatch evals run` (operational discipline below).
 
 ## Bootstrapping labels
 

@@ -1,0 +1,52 @@
+{
+  "version": "v1",
+  "suite": "extraction",
+  "labeler": "sample",
+  "notes": "Hand-label ~100 seed JDs with this schema. jd_file is relative to this JSON file. Comp is annual cash as integers in the posting currency. Seniority is one of intern|junior|mid|senior|staff|principal|executive. Work arrangement is remote|hybrid|onsite.",
+  "items": [
+    {
+      "id": "sample-senior-backend",
+      "source": "fixture",
+      "jd_file": "jds/sample_senior_backend.txt",
+      "title": "Senior Backend Engineer",
+      "seniority": "senior",
+      "comp_min": 160000,
+      "comp_max": 200000,
+      "location": "Remote",
+      "work_arrangement": "remote",
+      "hard_requirements": [
+        "5+ years of professional backend experience",
+        "Production Python (FastAPI or Django) shipping to production",
+        "PostgreSQL schema design and query tuning",
+        "Experience operating services on Amazon Web Services",
+        "Ability to design distributed systems and reason about consistency"
+      ],
+      "nice_to_haves": [
+        "Kubernetes administration (k8s)",
+        "Terraform",
+        "Prior payments or fintech experience",
+        "Public technical writing"
+      ]
+    },
+    {
+      "id": "sample-junior-hybrid",
+      "source": "fixture",
+      "jd_file": "jds/sample_junior_hybrid.txt",
+      "title": "Junior Software Engineer",
+      "seniority": "junior",
+      "comp_min": 85000,
+      "comp_max": 105000,
+      "location": "Toronto, ON",
+      "work_arrangement": "hybrid",
+      "hard_requirements": [
+        "1+ years of professional software experience or a strong internship",
+        "JavaScript or TypeScript",
+        "Comfortable with Git and code review"
+      ],
+      "nice_to_haves": [
+        "React",
+        "Prior internship at a startup"
+      ]
+    }
+  ]
+}

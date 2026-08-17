@@ -1,0 +1,10 @@
+{
+  "version": "v1",
+  "description": "Sample labels for the four non-negotiable evals. Replace items with hand labels from the seed corpus; keep this schema.",
+  "suites": {
+    "extraction": "extraction/labels.json",
+    "skill_linking": "skill_linking/labels.json",
+    "retrieval": "retrieval/labels.json",
+    "fabrication": "fabrication/pairs.json"
+  }
+}

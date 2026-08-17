@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch` CLI for profile ingest and match cycles. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, and `jobmatch evals run` for the four non-negotiable evals. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -117,6 +117,23 @@ jobmatch profile edit <uuid> --comp-floor 140000
 jobmatch match run --mode incremental
 jobmatch match run --mode dirty
 ```
+
+## Eval harness
+
+The four non-negotiable evals (`docs/EVALUATION.md`) hang off the CLI.
+Sample labels live in [`evals/sets/v1/`](evals/sets/v1/); the labeling
+workflow is in [`evals/README.md`](evals/README.md).
+
+```bash
+jobmatch evals run --offline
+jobmatch evals run --suite fabrication --plant-fabrication --offline   # exit 1
+```
+
+Reports are timestamped JSON + a text summary under `evals/results/` and
+record the set version, per-suite latency, token counts, and estimated
+cost. Retrieval recall@K warns (or refuses with
+`--require-gemini-embeddings`) unless `EMBEDDING_PROVIDER=gemini`.
+Fabrication is a hard gate: any fabricated claim fails the suite.
 
 Incremental matches jobs ingested or extracted since the last completed cycle against all profiles. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
 

@@ -1,0 +1,21 @@
+Junior Software Engineer — Internal Tools
+
+Location: Toronto, ON (hybrid, 3 days in office)
+Compensation: $85,000–$105,000 CAD
+Employment: Full-time
+
+About the role
+We are hiring a Junior Software Engineer to help build internal admin tools
+used by operations. You will pair with a senior engineer and ship small
+improvements every week.
+
+Must have
+- 1+ years of professional software experience or a strong internship
+- JavaScript or TypeScript
+- Comfortable with Git and code review
+
+Nice to have
+- React
+- Prior internship at a startup
+
+We work hybrid in Toronto.

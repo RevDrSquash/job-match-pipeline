@@ -5,6 +5,7 @@ Usage:
   jobmatch profile show [--user-id UUID]
   jobmatch profile edit <user-id> [corrections...]
   jobmatch match run --mode incremental|dirty
+  jobmatch evals run [--suite NAME]
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
             return _dispatch_profile(args)
         if args.command == "match":
             return _dispatch_match(args)
+        if args.command == "evals":
+            return _dispatch_evals(args)
         parser.print_help()
         return 2
     except PrivacySafeError as exc:
@@ -129,6 +132,56 @@ def _build_parser() -> argparse.ArgumentParser:
         "--cycle-at",
         default=None,
         help="ISO-8601 cycle timestamp (tests / idempotent redelivery)",
+    )
+
+    evals = sub.add_parser("evals", help="Run the four non-negotiable eval suites")
+    evals_sub = evals.add_subparsers(dest="evals_command", required=True)
+    evals_run = evals_sub.add_parser(
+        "run",
+        help="Execute extraction, skill linking, retrieval, and/or fabrication",
+    )
+    evals_run.add_argument(
+        "--suite",
+        action="append",
+        dest="suites",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Suite to run (repeatable): extraction, skill_linking, retrieval, "
+            "fabrication. Default: all four"
+        ),
+    )
+    evals_run.add_argument(
+        "--set-version",
+        default=None,
+        help="Eval set version directory under evals/sets (default: latest)",
+    )
+    evals_run.add_argument(
+        "--sets-dir",
+        type=Path,
+        default=None,
+        help="Override evals/sets root",
+    )
+    evals_run.add_argument(
+        "--results-dir",
+        type=Path,
+        default=None,
+        help="Directory for timestamped JSON + summary (default: evals/results)",
+    )
+    evals_run.add_argument(
+        "--offline",
+        action="store_true",
+        help="Force heuristic extraction and the grounded eval generator (no LLM)",
+    )
+    evals_run.add_argument(
+        "--plant-fabrication",
+        action="store_true",
+        help="Inject known-bad claims; fabrication suite must exit non-zero",
+    )
+    evals_run.add_argument(
+        "--require-gemini-embeddings",
+        action="store_true",
+        help="Refuse the retrieval suite unless EMBEDDING_PROVIDER=gemini",
     )
     return parser
 
@@ -249,6 +302,28 @@ def _dispatch_match(args: argparse.Namespace) -> int:
         print(f"error: handler returned {response.status_code}", file=sys.stderr)
         return 1
     return 0
+
+
+def _dispatch_evals(args: argparse.Namespace) -> int:
+    if args.evals_command != "run":
+        return 2
+    from app.evals.runner import format_run, run_evals
+
+    try:
+        result = run_evals(
+            suites=args.suites,
+            sets_dir=args.sets_dir,
+            results_dir=args.results_dir,
+            set_version=args.set_version,
+            offline=args.offline,
+            plant_fabrication=args.plant_fabrication,
+            require_gemini_embeddings=args.require_gemini_embeddings,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(format_run(result), end="")
+    return result.exit_code
 
 
 def _csv(value: str | None) -> list[str] | None:
