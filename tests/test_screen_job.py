@@ -312,16 +312,14 @@ def test_idempotent_redelivery_is_noop(db_session: Session) -> None:
 
 
 @requires_db
-def test_reject_is_recorded_and_high_rerank_logs_disagreement(
-    db_session: Session, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_reject_is_recorded_and_high_rerank_logs_disagreement(db_session: Session) -> None:
     user = _add_user(db_session, quota_remaining=4)
     job = _add_job(db_session)
     match = _add_match(db_session, user, job, rerank_score=0.93)
     queue = RecordingQueue()
     llm = FakeGateLLM(REJECT)
 
-    with caplog.at_level("INFO"):
+    with patch("app.screen.service.logger.info") as log_info:
         result = screen_job(
             db_session,
             {"match_id": str(match.id)},
@@ -329,6 +327,10 @@ def test_reject_is_recorded_and_high_rerank_logs_disagreement(
             llm=llm,
             settings=Settings(rerank_high_score_threshold=0.7),
         )
+
+    logged = " ".join(str(call.args[0]) for call in log_info.call_args_list)
+    assert "reranker_gate_disagreement" in logged
+    assert REJECT.reason not in logged
 
     assert result.action == "gate_reject"
     assert result.generate_enqueued is False
@@ -338,8 +340,6 @@ def test_reject_is_recorded_and_high_rerank_logs_disagreement(
     assert match.gate_verdict == "reject"
     assert match.gate_reason == REJECT.reason
     assert user.quota_remaining == 4
-    assert "reranker_gate_disagreement" in caplog.text
-    assert REJECT.reason not in caplog.text
 
     actions = [
         e.action
