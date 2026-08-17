@@ -73,6 +73,21 @@ class Settings(BaseSettings):
     # None = record missing hard-req count, do not auto-drop (current policy).
     hard_req_missing_drop_threshold: int | None = None
 
+    # generate-resume: best-available Gemini. Resume text IS personal
+    # information — ZDR/no-training terms are a production blocker.
+    # Model name lives here, never at call sites.
+    generation_model: str = "gemini-3.5-pro"
+    generation_input_usd_per_mtok: float = 1.25
+    generation_output_usd_per_mtok: float = 10.00
+
+    # verify-resume stages 2–3: different family than the generator
+    # (Anthropic). Same ZDR expectation; paperwork deferred.
+    verify_api_key: str = ""
+    verify_api_base: str = "https://api.anthropic.com"
+    verify_model: str = "claude-sonnet-4-5"
+    verify_input_usd_per_mtok: float = 3.00
+    verify_output_usd_per_mtok: float = 15.00
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -9,11 +9,13 @@ from fastapi import FastAPI
 from app.config import Settings, get_settings
 from app.extract.embed import DocumentEmbedder
 from app.extract.llm import JobLLM
+from app.generate.llm import GenerateLLM
 from app.handlers import create_handlers_router, get_received
 from app.match.rerank import Reranker
 from app.queue import TaskQueue, get_task_queue
 from app.screen.llm import GateLLM
 from app.skills.linker import SkillLinker
+from app.verify.llm import VerifyLLM
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +32,9 @@ def create_app(
     extract_linker: SkillLinker | None = None,
     match_reranker: Reranker | None = None,
     screen_llm: GateLLM | None = None,
+    generate_llm: GenerateLLM | None = None,
+    verify_llm: VerifyLLM | None = None,
+    skill_linker: SkillLinker | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     queue = queue or get_task_queue(settings)
@@ -47,6 +52,9 @@ def create_app(
             extract_linker=extract_linker,
             match_reranker=match_reranker,
             screen_llm=screen_llm,
+            generate_llm=generate_llm,
+            verify_llm=verify_llm,
+            skill_linker=skill_linker,
         )
     )
 
@@ -58,7 +66,7 @@ def create_app(
 
         @application.get("/_debug/received")
         def debug_received() -> dict:
-            """Test helper: payloads received by stub handlers (PoC only)."""
+            """Test helper: payloads received by handlers (PoC only)."""
             return {
                 "events": [
                     {"handler": name, "payload": payload}

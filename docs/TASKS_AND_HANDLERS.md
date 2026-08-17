@@ -201,6 +201,15 @@ The missing bucket does the most work. Without an explicit list, a model asked t
 
 **Output:** resume + claim → source-span ID mapping (required by verification).
 
+**PoC implementation** (`POST /handlers/generate-resume` with `{user_id, job_id, match_id}` from `screen-job`, plus `attempt` / `violations` on a single regenerate):
+
+* Generation model: `GENERATION_MODEL` (default `gemini-3.5-pro`). Resume text is personal information — ZDR/no-training vendor terms apply (`docs/PRIVACY_AND_COMPLIANCE.md`); paperwork is deferred. Prompt/completion text is never logged.
+* Input is assembled as the three match buckets (`matched_skills` / `adjacent_skills` / `missing_skills`) plus terminology context (canonical label, JD surface form, resume surface form). No find-replace on skill terms.
+* The work-history block is a stable prefix keyed on `user_id` + `profile_version`. Gemini explicit `cachedContents` is attempted; short prefixes and unsupported models fall back to implicit prefix caching (identical first part, JD-only suffix).
+* Structured output is `resume_doc` plus a `claim_source_map` (`claims[]` with `span_ids` from profile ingest, plus employers / titles / date ranges / `claimed_skill_ids`). Stored on `generations`.
+* Idempotency: redelivery of the same `attempt` is a no-op (`skipped_existing`). `attempt` is at most 2 (verify-resume regenerates once).
+* On success enqueues `verify-resume` with `{generation_id, match_id, attempt}`. Permanent failures (missing/invalid `match_id`, unknown match/profile): 2xx. Retryable LLM errors: `pipeline_events` + 5xx. Token counts and estimated cost are logged on every call.
+
 ---
 
 ### `verify-resume`
@@ -220,6 +229,14 @@ The missing bucket does the most work. Without an explicit list, a model asked t
 Stages 2 and 3 must be separate calls — one call cannot do both honestly. Use a **different model family than the generator**; self-verification within a family is weak at catching its own confabulations.
 
 Failure → regenerate once with the specific violations named, then flag for human review rather than looping.
+
+**PoC implementation** (`POST /handlers/verify-resume` with `{generation_id, match_id, attempt}` from `generate-resume`):
+
+* **Stage 1** is set membership / regex, no LLM: claimed employers, titles, and date ranges must be in the source work-history sets; every number token in `resume_doc` must appear in the source (span IDs and list markers stripped first); canonical skills in the output (claim map + `SkillLinker.scan_text`) must be ⊆ `user_profiles.skill_ids`.
+* **Stage 2** (JD-blind grounding) and **Stage 3** (JD-aware coverage) are separate calls on `VERIFY_MODEL` (default `claude-sonnet-4-5` via `VERIFY_API_KEY` / `ANTHROPIC_API_KEY`). Different family than the Gemini generator. The grounding prompt receives resume + work history only.
+* Stages 2 and 3 still run when stage 1 fails so `pipeline_events` records all three signals. Each stage writes a row (`stage1_pass|fail`, `stage2_pass|fail`, `stage3_pass|fail`).
+* Failure on attempt 1 writes `verify_status=failed` / `verify_failures[]` and enqueues `generate-resume` with the named violations and `attempt=2`. Failure on attempt 2 writes `needs_review` and stops — no loops.
+* Redelivery of an already-verified generation is a no-op (`skipped_verified`). Permanent failures: 2xx. Retryable LLM errors: `pipeline_events` + 5xx. Token counts and estimated cost are logged per call; resume text is never logged.
 
 ---
 
