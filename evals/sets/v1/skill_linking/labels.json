@@ -1,0 +1,53 @@
+{
+  "version": "v1",
+  "suite": "skill_linking",
+  "labeler": "sample",
+  "notes": "Each span is a surface form as it appears (or a close normalization) plus the canonical skill_id the linker should return. mention=explicit when the taxonomy label/alias is in the text; mention=implicit when there is no string overlap. Report implicit separately — averaging hides the gap. skill_id=null means the span must not link.",
+  "items": [
+    {
+      "id": "sample-senior-backend",
+      "document_kind": "jd",
+      "source_file": "../extraction/jds/sample_senior_backend.txt",
+      "spans": [
+        {"text": "Python", "skill_id": "esco:python", "mention": "explicit"},
+        {"text": "FastAPI", "skill_id": "esco:fastapi", "mention": "explicit"},
+        {"text": "Django", "skill_id": "esco:django", "mention": "explicit"},
+        {"text": "PostgreSQL", "skill_id": "esco:postgresql", "mention": "explicit"},
+        {"text": "Amazon Web Services", "skill_id": "esco:aws", "mention": "explicit"},
+        {"text": "AWS", "skill_id": "esco:aws", "mention": "explicit"},
+        {"text": "Kubernetes", "skill_id": "esco:kubernetes", "mention": "explicit"},
+        {"text": "Terraform", "skill_id": "esco:terraform", "mention": "explicit"},
+        {"text": "Redis", "skill_id": "esco:redis", "mention": "explicit"},
+        {"text": "distributed systems", "skill_id": "esco:system-design", "mention": "explicit"}
+      ]
+    },
+    {
+      "id": "implicit-teamwork-jd",
+      "document_kind": "jd",
+      "source_file": "jds/implicit_teamwork.txt",
+      "spans": [
+        {"text": "work closely across teams", "skill_id": "esco:teamwork", "mention": "implicit"},
+        {"text": "Kubernetes", "skill_id": "esco:kubernetes", "mention": "explicit"},
+        {"text": "CloudFormation", "skill_id": "esco:cloudformation", "mention": "explicit"},
+        {"text": "Partner across product, design, and data", "skill_id": "esco:teamwork", "mention": "implicit"}
+      ]
+    },
+    {
+      "id": "test-resume",
+      "document_kind": "resume",
+      "source_file": "resumes/sample_resume.md",
+      "spans": [
+        {"text": "Python", "skill_id": "esco:python", "mention": "explicit"},
+        {"text": "PostgreSQL", "skill_id": "esco:postgresql", "mention": "explicit"},
+        {"text": "Docker", "skill_id": "esco:docker", "mention": "explicit"},
+        {"text": "Kubernetes", "skill_id": "esco:kubernetes", "mention": "explicit"},
+        {"text": "AWS", "skill_id": "esco:aws", "mention": "explicit"},
+        {"text": "Terraform", "skill_id": "esco:terraform", "mention": "explicit"},
+        {"text": "REST APIs", "skill_id": "esco:rest-api", "mention": "explicit"},
+        {"text": "GitHub Actions", "skill_id": "esco:github-actions", "mention": "explicit"},
+        {"text": "system design", "skill_id": "esco:system-design", "mention": "explicit"},
+        {"text": "Mentored three engineers", "skill_id": "esco:mentoring", "mention": "implicit"}
+      ]
+    }
+  ]
+}
