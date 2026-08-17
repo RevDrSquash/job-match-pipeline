@@ -1,4 +1,4 @@
-"""Shared fixtures for local TaskQueue HTTP tests."""
+"""Shared fixtures for local TaskQueue HTTP tests and DB integration tests."""
 
 from __future__ import annotations
 
@@ -10,8 +10,12 @@ from collections.abc import Iterator
 import httpx
 import pytest
 import uvicorn
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db.session import get_engine, normalize_database_url
 from app.handlers import clear_received
 
 
@@ -19,6 +23,52 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def _database_available() -> bool:
+    # Probe with a bare engine: get_engine() registers the pgvector type adapter
+    # on connect, which fails on a reachable-but-unmigrated database and would
+    # make these tests skip with a misleading reason.
+    engine = create_engine(normalize_database_url(get_settings().database_url))
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except OperationalError:
+        return False
+    finally:
+        engine.dispose()
+
+
+requires_db = pytest.mark.skipif(
+    not _database_available(),
+    reason="Postgres not reachable (start with: docker compose up db -d)",
+)
+
+
+@pytest.fixture(scope="session")
+def apply_migrations() -> None:
+    from alembic.config import Config
+
+    from alembic import command
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+
+@pytest.fixture
+def db_session(apply_migrations: None) -> Iterator[Session]:
+    engine = get_engine()
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
+    try:
+        yield session
+    finally:
+        session.close()
+        if transaction.is_active:
+            transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture

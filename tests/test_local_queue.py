@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from app.config import Settings, get_settings
-from app.handlers import HANDLER_NAMES, clear_received, get_received
+from app.handlers import clear_received, get_received
 from app.main import create_app
 from app.queue import LocalTaskQueue, get_task_queue
 
@@ -26,39 +26,43 @@ def test_local_queue_delivers_to_stub_handler(local_server: str) -> None:
     queue = LocalTaskQueue(local_server)
     marker = {"job_id": "job-42", "follow_chain": False}
 
-    queue.enqueue("ingest-job", marker)
+    queue.enqueue("extract-job", marker)
 
-    def received_ingest() -> bool:
+    def received_extract() -> bool:
         return any(
-            name == "ingest-job" and payload.get("job_id") == "job-42"
+            name == "extract-job" and payload.get("job_id") == "job-42"
             for name, payload in get_received()
         )
 
-    _wait_for(received_ingest)
+    _wait_for(received_extract)
 
     events = get_received()
-    assert ("ingest-job", marker) in events
+    assert ("extract-job", marker) in events
     # follow_chain=False must not fan out.
-    assert [name for name, _ in events] == ["ingest-job"]
+    assert [name for name, _ in events] == ["extract-job"]
 
 
 def test_stub_chain_enqueues_end_to_end(local_server: str) -> None:
+    """Stub stages still chain when follow_chain=true (ingest path is real, not stubbed)."""
+    from app.handlers import STUB_HANDLER_NAMES
+
     queue = LocalTaskQueue(local_server)
     queue.enqueue(
-        "fetch-link-list",
+        "extract-job",
         {"run_id": "chain-1", "follow_chain": True},
     )
 
     def full_chain_seen() -> bool:
         seen = {name for name, _ in get_received()}
-        return set(HANDLER_NAMES).issubset(seen)
+        return set(STUB_HANDLER_NAMES).issubset(seen)
 
     _wait_for(full_chain_seen, timeout=15.0)
 
     order = [name for name, _ in get_received()]
-    # Each handler appears at least once, in chain order for the first pass.
-    first_index = {name: order.index(name) for name in HANDLER_NAMES}
-    assert [first_index[name] for name in HANDLER_NAMES] == list(range(len(HANDLER_NAMES)))
+    first_index = {name: order.index(name) for name in STUB_HANDLER_NAMES}
+    assert [first_index[name] for name in STUB_HANDLER_NAMES] == list(
+        range(len(STUB_HANDLER_NAMES))
+    )
 
     health = httpx.get(f"{local_server}/health", timeout=5.0)
     assert health.status_code == 200
@@ -80,7 +84,7 @@ def test_handlers_accept_post_directly(local_server: str) -> None:
 def test_follow_chain_defaults_to_off(local_server: str) -> None:
     """Bare POSTs must not fan out through the stub chain."""
     response = httpx.post(
-        f"{local_server}/handlers/fetch-link-list",
+        f"{local_server}/handlers/extract-job",
         json={"run_id": "no-chain"},
         timeout=5.0,
     )
@@ -88,7 +92,7 @@ def test_follow_chain_defaults_to_off(local_server: str) -> None:
 
     time.sleep(0.3)
     events = get_received()
-    assert [name for name, _ in events] == ["fetch-link-list"]
+    assert [name for name, _ in events] == ["extract-job"]
 
 
 def test_debug_received_endpoint_when_enabled(local_server: str) -> None:
@@ -115,7 +119,7 @@ def test_debug_capture_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> N
     from fastapi.testclient import TestClient
 
     with TestClient(application) as client:
-        post = client.post("/handlers/ingest-job", json={"job_id": "x"})
+        post = client.post("/handlers/extract-job", json={"job_id": "x"})
         assert post.status_code == 200
         debug = client.get("/_debug/received")
         assert debug.status_code == 404
