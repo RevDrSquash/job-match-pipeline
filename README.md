@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, and a `job-match-seed` CLI for the ~500-posting corpus. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, and a `job-match-seed` CLI for the ~500-posting corpus. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -45,6 +45,19 @@ python -m app.seed --target 500
 ```
 
 The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. No LLM calls on this path.
+
+Extract a seeded job (lazy; cached on `extracted_at`):
+
+```bash
+# Live extraction needs LLM_API_KEY or GEMINI_API_KEY.
+# EMBEDDING_PROVIDER=hashing (default) writes 768-d hashing vectors offline;
+# set EMBEDDING_PROVIDER=gemini to use text-embedding-004.
+curl -s -X POST http://localhost:8080/handlers/extract-job \
+  -H 'content-type: application/json' \
+  -d '{"job_id":"<job uuid>"}'
+```
+
+Re-POSTing the same `job_id` is a no-op. Permanent failures (unparseable JD) return 2xx; retryable LLM errors return 5xx. Token counts and estimated cost are logged on every extraction — never the JD text.
 
 Smoke a single board through the HTTP handlers:
 

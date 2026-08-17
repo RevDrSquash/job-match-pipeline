@@ -41,11 +41,17 @@ DEF-14 lists ATS-endpoint ToS review as a blocker "before building." Strictly, e
 
 Not inconsistencies — just decisions the docs deliberately leave open that the scaffold has to pick something for:
 
-* **Embedding model** — docs fix the dimension (768) but not the model. **PoC
-  default for skill-span linking:** deterministic feature-hashing embedder in
-  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d). Job/profile document
-  embeddings are still unpinned — pick a real 768-d model when wiring
-  `extract-job` / profile synthesis and record it here.
+* **Embedding model** — docs fix the dimension (768) but not the model.
+  **Skill-span linking:** deterministic feature-hashing embedder in
+  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d).
+  **Job/profile documents (DEF-20):** Google `text-embedding-004` (native
+  768-d) when `EMBEDDING_PROVIDER=gemini`. Offline PoC default is
+  `EMBEDDING_PROVIDER=hashing` (same `HashingEmbedder`) so extract-job can
+  write vectors without an API key. Job and profile documents must use the
+  same provider — the two spaces are not comparable. Switching providers
+  later would require re-embedding; `extracted_at` is a permanent cache.
+  **Extraction LLM:** `gemini-2.5-flash-lite` (configurable via
+  `EXTRACTION_MODEL`). Cheapest adequate model; no residency/ZDR constraint.
 * **Skill taxonomy** — **ESCO** chosen for the PoC (CSV distribution + public
   API; see `scripts/load_esco.py` and README). Linker stays behind
   `app/skills.SkillLinker` with no ESCO types outside the loader. O*NET remains

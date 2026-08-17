@@ -113,6 +113,14 @@ class InMemorySkillLinker:
             linked.append(skill_id)
         return linked
 
+    def labels_for(self, skill_ids: Sequence[str]) -> list[str]:
+        """Preferred labels for linked ids (unknown ids echo the id)."""
+        labels: list[str] = []
+        for skill_id in skill_ids:
+            record = self._index.records.get(skill_id)
+            labels.append(record.canonical_label if record is not None else skill_id)
+        return labels
+
     def link_span(self, span: str) -> str | None:
         key = normalize_label(span)
         if not key:

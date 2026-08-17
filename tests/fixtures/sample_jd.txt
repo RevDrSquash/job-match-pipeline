@@ -1,0 +1,26 @@
+Senior Backend Engineer — Payments Platform
+
+Location: Remote (US or Canada)
+Compensation: $160,000–$200,000 USD plus equity
+Employment: Full-time
+
+About the role
+We are hiring a Senior Backend Engineer to own payment-ledger services used by
+every checkout. You will design APIs, review production incidents, and mentor
+mid-level engineers.
+
+Must have
+- 5+ years of professional backend experience
+- Production Python (FastAPI or Django) shipping to production
+- PostgreSQL schema design and query tuning
+- Experience operating services on Amazon Web Services
+- Ability to design distributed systems and reason about consistency
+
+Nice to have
+- Kubernetes administration (k8s)
+- Terraform
+- Prior payments or fintech experience
+- Public technical writing
+
+Tech you will use daily: Python, PostgreSQL, AWS, Redis.
+We are a remote-first team. No agencies.
