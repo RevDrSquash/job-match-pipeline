@@ -35,11 +35,7 @@ Expected — it's labeled a sketch — but the migration must resolve, at minimu
 
 DEF-14 lists ATS-endpoint ToS review as a blocker "before building." Strictly, even fetching the ~500 seed postings uses those endpoints. The seed fetch targets public, documented JSON APIs intended for consumption (Greenhouse boards API, Lever postings API) at trivial volume, which is a defensible interim posture — but the review should happen before steady-state ingest, and this note is the acknowledgment that the PoC front-runs it slightly.
 
-## 6. Duplicate "UI Design" document in Linear
-
-Linear contains two "UI Design" project documents. The older one (created 2026-08-17 00:53 UTC) predates the frontend-hosting decision — it still lists hosting as an open question. The newer one (created 00:56, updated 01:11) contains the decided Hosting section and is what was mirrored to `docs/UI.md`. The stale duplicate should be archived in Linear to avoid confusion.
-
-## 7. Unpinned technical choices to make during scaffold (defaults suggested)
+## 6. Unpinned technical choices to make during scaffold (defaults suggested)
 
 Not inconsistencies — just decisions the docs deliberately leave open that the scaffold has to pick something for:
 

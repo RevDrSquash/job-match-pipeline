@@ -4,7 +4,7 @@ A job-matching pipeline: ingest postings from ATS providers, extract and canonic
 
 ## Documentation
 
-Design docs live in [`docs/`](docs/README.md). **The repo is canonical:** the docs were drafted in Linear, but the copies here are the source of truth. Linear documents are a snapshot for discussion — if the two diverge, the repo wins.
+Design docs live in [`docs/`](docs/README.md) and are the source of truth for all design decisions.
 
 ## Status
 

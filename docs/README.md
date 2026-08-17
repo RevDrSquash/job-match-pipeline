@@ -1,6 +1,6 @@
 # Design docs
 
-**The repo is canonical for design docs.** These were drafted as Linear project documents and mirrored here. Going forward, edit these copies — Linear documents are a snapshot for discussion, not a second source of truth. If the two diverge, the repo wins.
+**These docs are the source of truth for all design decisions.** If an implementation diverges from a doc, update the doc in the same change.
 
 | Document | Contents |
 | -- | -- |
