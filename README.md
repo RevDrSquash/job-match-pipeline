@@ -28,13 +28,15 @@ docker compose up --build
 
 Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`.
 
-Smoke the stub chain (each handler enqueues the next when `follow_chain` is true):
+Smoke the stub chain (opt-in: each handler enqueues the next only when `follow_chain` is true; default is off):
 
 ```bash
 curl -s -X POST http://localhost:8080/handlers/fetch-link-list \
   -H 'content-type: application/json' \
   -d '{"run_id":"local-1","follow_chain":true}'
 ```
+
+`ENABLE_DEBUG_CAPTURE=true` turns on an in-memory receipt log and `GET /_debug/received` for local tests. Leave it false (the default) outside PoC/test so it cannot ship to Cloud Run.
 
 ## Local development (without Docker for the app)
 

@@ -43,6 +43,7 @@ STUB_CHAIN_NEXT: dict[str, str | None] = {
 
 _lock = threading.Lock()
 _received: list[tuple[str, dict[str, Any]]] = []
+_debug_capture_enabled = False
 
 
 class HandlerPayload(BaseModel):
@@ -60,11 +61,19 @@ def get_received() -> list[tuple[str, dict[str, Any]]]:
 
 
 def record_received(name: str, payload: dict[str, Any]) -> None:
+    if not _debug_capture_enabled:
+        return
     with _lock:
         _received.append((name, payload))
 
 
-def create_handlers_router(queue: TaskQueue) -> APIRouter:
+def create_handlers_router(
+    queue: TaskQueue,
+    *,
+    enable_debug_capture: bool = False,
+) -> APIRouter:
+    global _debug_capture_enabled
+    _debug_capture_enabled = enable_debug_capture
     router = APIRouter()
 
     def make_handler(name: str):
@@ -73,9 +82,9 @@ def create_handlers_router(queue: TaskQueue) -> APIRouter:
             record_received(name, body)
             logger.info("handler=%s received keys=%s", name, sorted(body.keys()))
 
-            # Stub chain: when follow_chain is true (default for smoke tests),
-            # enqueue the next handler so QUEUE_IMPL=local exercises the full path.
-            follow_chain = body.get("follow_chain", True)
+            # Stub chain: opt-in via follow_chain=true so bare POSTs / Cloud Tasks
+            # retries do not implicitly fan out through the rest of the pipeline.
+            follow_chain = bool(body.get("follow_chain", False))
             next_name = STUB_CHAIN_NEXT.get(name) if follow_chain else None
             if next_name:
                 next_payload = {**body, "from_handler": name}

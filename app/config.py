@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:postgres@localhost:5432/jobmatch"
     local_queue_base_url: str = "http://localhost:8080"
 
+    # PoC/test only: in-memory handler receipt log + GET /_debug/received.
+    # Must stay off in Cloud Run.
+    enable_debug_capture: bool = False
+
     # Cloud Tasks (used when queue_impl=cloudtasks)
     gcp_project: str = ""
     gcp_location: str = "us-central1"

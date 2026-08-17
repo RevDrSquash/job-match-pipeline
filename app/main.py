@@ -26,21 +26,28 @@ def create_app(
     application = FastAPI(title="Job Match Pipeline", version="0.1.0")
     application.state.settings = settings
     application.state.queue = queue
-    application.include_router(create_handlers_router(queue))
+    application.include_router(
+        create_handlers_router(
+            queue,
+            enable_debug_capture=settings.enable_debug_capture,
+        )
+    )
 
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "queue_impl": settings.queue_impl}
 
-    @application.get("/_debug/received")
-    def debug_received() -> dict:
-        """Test helper: payloads received by stub handlers (PoC only)."""
-        return {
-            "events": [
-                {"handler": name, "payload": payload}
-                for name, payload in get_received()
-            ]
-        }
+    if settings.enable_debug_capture:
+
+        @application.get("/_debug/received")
+        def debug_received() -> dict:
+            """Test helper: payloads received by stub handlers (PoC only)."""
+            return {
+                "events": [
+                    {"handler": name, "payload": payload}
+                    for name, payload in get_received()
+                ]
+            }
 
     return application
 

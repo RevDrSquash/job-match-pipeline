@@ -29,6 +29,7 @@ def local_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
 
     monkeypatch.setenv("QUEUE_IMPL", "local")
     monkeypatch.setenv("LOCAL_QUEUE_BASE_URL", base_url)
+    monkeypatch.setenv("ENABLE_DEBUG_CAPTURE", "true")
     get_settings.cache_clear()
 
     # Import after env is set so module-level defaults stay unused by create_app().

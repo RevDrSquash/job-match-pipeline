@@ -5,9 +5,12 @@ from __future__ import annotations
 import time
 
 import httpx
+import pytest
 
-from app.handlers import HANDLER_NAMES, get_received
-from app.queue import LocalTaskQueue
+from app.config import Settings, get_settings
+from app.handlers import HANDLER_NAMES, clear_received, get_received
+from app.main import create_app
+from app.queue import LocalTaskQueue, get_task_queue
 
 
 def _wait_for(predicate, timeout: float = 10.0, interval: float = 0.05) -> None:
@@ -72,3 +75,50 @@ def test_handlers_accept_post_directly(local_server: str) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["handler"] == "screen-job"
+
+
+def test_follow_chain_defaults_to_off(local_server: str) -> None:
+    """Bare POSTs must not fan out through the stub chain."""
+    response = httpx.post(
+        f"{local_server}/handlers/fetch-link-list",
+        json={"run_id": "no-chain"},
+        timeout=5.0,
+    )
+    assert response.status_code == 200
+
+    time.sleep(0.3)
+    events = get_received()
+    assert [name for name, _ in events] == ["fetch-link-list"]
+
+
+def test_debug_received_endpoint_when_enabled(local_server: str) -> None:
+    httpx.post(
+        f"{local_server}/handlers/match-batch",
+        json={"batch_id": "b-1"},
+        timeout=5.0,
+    )
+    response = httpx.get(f"{local_server}/_debug/received", timeout=5.0)
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert any(e["handler"] == "match-batch" for e in events)
+
+
+def test_debug_capture_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENABLE_DEBUG_CAPTURE", raising=False)
+    get_settings.cache_clear()
+    clear_received()
+
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    queue = get_task_queue(settings)
+    application = create_app(settings=settings, queue=queue)
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(application) as client:
+        post = client.post("/handlers/ingest-job", json={"job_id": "x"})
+        assert post.status_code == 200
+        debug = client.get("/_debug/received")
+        assert debug.status_code == 404
+
+    assert get_received() == []
+    get_settings.cache_clear()
