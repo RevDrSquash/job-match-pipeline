@@ -1,7 +1,7 @@
 """Pipeline handlers.
 
 Real implementations: fetch-link-list, ingest-job, extract-job, match-batch,
-screen-job. Remaining stages are stubs until later issues land.
+screen-job, generate-resume, verify-resume.
 
 Convention (see docs/TASKS_AND_HANDLERS.md): return 2xx on permanent failure
 after logging; 5xx only for genuinely retryable errors.
@@ -22,6 +22,8 @@ from app.db.session import db_session
 from app.extract.embed import DocumentEmbedder
 from app.extract.llm import JobLLM, RetryableLLMError
 from app.extract.service import extract_job
+from app.generate.llm import GenerateLLM
+from app.generate.service import generate_resume
 from app.ingest.events import record_pipeline_event
 from app.ingest.fetch import fetch_link_list
 from app.ingest.store import ingest_posting
@@ -31,6 +33,8 @@ from app.queue import TaskQueue
 from app.screen.llm import GateLLM
 from app.screen.service import screen_job
 from app.skills.linker import SkillLinker
+from app.verify.llm import VerifyLLM
+from app.verify.service import verify_resume
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +47,6 @@ HANDLER_NAMES = (
     "generate-resume",
     "verify-resume",
 )
-
-STUB_HANDLER_NAMES = (
-    "generate-resume",
-    "verify-resume",
-)
-
-# Opt-in follow_chain smoke path through remaining stubs. match-batch and
-# screen-job enqueue their real successors themselves (screen-job only on
-# pass + remaining quota).
-STUB_CHAIN_NEXT: dict[str, str | None] = {
-    "generate-resume": "verify-resume",
-    "verify-resume": None,
-}
 
 _lock = threading.Lock()
 _received: list[tuple[str, dict[str, Any]]] = []
@@ -93,6 +84,9 @@ def create_handlers_router(
     extract_linker: SkillLinker | None = None,
     match_reranker: Reranker | None = None,
     screen_llm: GateLLM | None = None,
+    generate_llm: GenerateLLM | None = None,
+    verify_llm: VerifyLLM | None = None,
+    skill_linker: SkillLinker | None = None,
 ) -> APIRouter:
     global _debug_capture_enabled
     _debug_capture_enabled = enable_debug_capture
@@ -171,7 +165,6 @@ def create_handlers_router(
         if raw_job_id in (None, "") or job_uuid is None:
             action = "missing_job_id" if raw_job_id in (None, "") else "invalid_job_id"
             logger.info("extract-job permanent failure action=%s", action)
-            _maybe_follow_chain("extract-job", body, queue)
             return {
                 "status": "ok",
                 "handler": "extract-job",
@@ -205,7 +198,6 @@ def create_handlers_router(
             logger.exception("extract-job unexpected failure")
             raise HTTPException(status_code=500, detail="retryable extract-job failure") from None
 
-        _maybe_follow_chain("extract-job", body, queue)
         return {
             "status": "ok",
             "handler": "extract-job",
@@ -318,24 +310,156 @@ def create_handlers_router(
             "generate_enqueued": result.generate_enqueued,
         }
 
-    def make_stub(name: str):
-        async def handler(payload: HandlerPayload) -> dict[str, Any]:
-            body = payload.model_dump()
-            record_received(name, body)
-            logger.info("handler=%s received keys=%s", name, sorted(body.keys()))
+    @router.post("/handlers/generate-resume", name="generate-resume")
+    def generate_resume_handler(payload: HandlerPayload) -> dict[str, Any]:
+        body = payload.model_dump()
+        record_received("generate-resume", body)
+        raw_match_id = body.get("match_id")
+        match_uuid = _parse_uuid_or_none(raw_match_id)
+        if raw_match_id in (None, "") or match_uuid is None:
+            action = "missing_match_id" if raw_match_id in (None, "") else "invalid_match_id"
+            logger.info("generate-resume permanent failure action=%s", action)
+            return {
+                "status": "ok",
+                "handler": "generate-resume",
+                "action": action,
+                "match_id": None,
+                "generation_id": None,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": 0.0,
+                "verify_enqueued": False,
+            }
+        try:
+            with db_session() as session:
+                try:
+                    result = generate_resume(
+                        session,
+                        body,
+                        queue,
+                        llm=generate_llm,
+                        linker=skill_linker,
+                        settings=settings,
+                    )
+                    session.commit()
+                except RetryableLLMError:
+                    session.commit()
+                    raise
+        except RetryableLLMError:
+            logger.exception("generate-resume retryable failure")
+            raise HTTPException(
+                status_code=503, detail="retryable generate-resume failure"
+            ) from None
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("generate-resume unexpected failure")
+            raise HTTPException(
+                status_code=500, detail="retryable generate-resume failure"
+            ) from None
 
-            _maybe_follow_chain(name, body, queue)
-            return {"status": "ok", "handler": name}
+        return {
+            "status": "ok",
+            "handler": "generate-resume",
+            "action": result.action,
+            "match_id": result.match_id,
+            "generation_id": result.generation_id,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "cost_usd": result.cost_usd,
+            "verify_enqueued": result.verify_enqueued,
+        }
 
-        return handler
+    @router.post("/handlers/verify-resume", name="verify-resume")
+    def verify_resume_handler(payload: HandlerPayload) -> dict[str, Any]:
+        body = payload.model_dump()
+        record_received("verify-resume", body)
+        raw_generation_id = body.get("generation_id")
+        raw_match_id = body.get("match_id")
+        generation_uuid = _parse_uuid_or_none(raw_generation_id)
+        match_uuid = _parse_uuid_or_none(raw_match_id)
+        if raw_generation_id in (None, "") and raw_match_id in (None, ""):
+            logger.info("verify-resume permanent failure action=missing_generation_id")
+            return {
+                "status": "ok",
+                "handler": "verify-resume",
+                "action": "missing_generation_id",
+                "generation_id": None,
+                "verify_status": None,
+                "verify_failures": [],
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": 0.0,
+                "regenerate_enqueued": False,
+            }
+        if raw_generation_id not in (None, "") and generation_uuid is None:
+            logger.info("verify-resume permanent failure action=invalid_generation_id")
+            return {
+                "status": "ok",
+                "handler": "verify-resume",
+                "action": "invalid_generation_id",
+                "generation_id": None,
+                "verify_status": None,
+                "verify_failures": [],
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": 0.0,
+                "regenerate_enqueued": False,
+            }
+        if (
+            raw_generation_id in (None, "")
+            and raw_match_id not in (None, "")
+            and match_uuid is None
+        ):
+            logger.info("verify-resume permanent failure action=invalid_match_id")
+            return {
+                "status": "ok",
+                "handler": "verify-resume",
+                "action": "invalid_match_id",
+                "generation_id": None,
+                "verify_status": None,
+                "verify_failures": [],
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": 0.0,
+                "regenerate_enqueued": False,
+            }
+        try:
+            with db_session() as session:
+                try:
+                    result = verify_resume(
+                        session,
+                        body,
+                        queue,
+                        llm=verify_llm,
+                        linker=skill_linker,
+                        settings=settings,
+                    )
+                    session.commit()
+                except RetryableLLMError:
+                    session.commit()
+                    raise
+        except RetryableLLMError:
+            logger.exception("verify-resume retryable failure")
+            raise HTTPException(status_code=503, detail="retryable verify-resume failure") from None
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("verify-resume unexpected failure")
+            raise HTTPException(status_code=500, detail="retryable verify-resume failure") from None
 
-    for handler_name in STUB_HANDLER_NAMES:
-        router.add_api_route(
-            f"/handlers/{handler_name}",
-            make_stub(handler_name),
-            methods=["POST"],
-            name=handler_name,
-        )
+        return {
+            "status": "ok",
+            "handler": "verify-resume",
+            "action": result.action,
+            "generation_id": result.generation_id,
+            "verify_status": result.verify_status,
+            "verify_failures": result.verify_failures,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "cost_usd": result.cost_usd,
+            "regenerate_enqueued": result.regenerate_enqueued,
+        }
 
     return router
 
@@ -358,11 +482,3 @@ def _parse_uuid_or_none(value: Any) -> uuid.UUID | None:
     except (TypeError, ValueError):
         return None
 
-
-def _maybe_follow_chain(name: str, body: dict[str, Any], queue: TaskQueue) -> None:
-    follow_chain = bool(body.get("follow_chain", False))
-    next_name = STUB_CHAIN_NEXT.get(name) if follow_chain else None
-    if next_name:
-        next_payload = {**body, "from_handler": name}
-        queue.enqueue(next_name, next_payload)
-        logger.info("handler=%s enqueued next=%s", name, next_name)

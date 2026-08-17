@@ -83,3 +83,13 @@ Where profile ingest landed after the merge:
 * **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality. `gemini-embedding-001` caps input at 2,048 tokens and truncates silently, so the synthesized profile doc is trimmed to that budget (oldest roles' bullets dropped first; job docs already cap at 500) and the embedder logs an error if an over-cap doc ever slips through.
 * **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-3.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
 * **Skill linking:** the shared `app/skills` linker over the `skills` table, with the in-repo seed fallback described in §6.
+
+## 8. generate-resume / verify-resume model split (DEF-23)
+
+Docs require a **different model family** for verify stages 2–3 than the generator. The repo was Gemini-only; the PoC split is:
+
+* **Generator:** `GENERATION_MODEL` default `gemini-3.5-pro` (same `LLM_API_KEY` / `LLM_API_BASE` as extract/profile). Best-available Gemini in the 3.5 family already used elsewhere; ZDR/no-training terms are a production blocker (privacy doc). Work-history prompt caching uses Gemini `cachedContents` when the prefix is long enough, otherwise an implicit identical prefix.
+* **Verifier:** `VERIFY_MODEL` default `claude-sonnet-4-5` (`VERIFY_API_KEY` or `ANTHROPIC_API_KEY`, `VERIFY_API_BASE`). Anthropic is a different family, which is the load-bearing requirement. ZDR paperwork is equally deferred — do not send real resumes until those terms exist.
+* Token/cost rates live in `app/config.py` and are logged on every call (`OPEN_ISSUES.md` §1). Defaults are list-price placeholders, not measured.
+
+Self-verification within Gemini is intentionally not offered as a fallback: a missing Anthropic key is a retryable config error, not a silent downgrade to the generator family.

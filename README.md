@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` are real; generate/verify are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch` CLI for profile ingest and match cycles. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch` CLI for profile ingest and match cycles. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -69,6 +69,23 @@ curl -s -X POST http://localhost:8080/handlers/screen-job \
 ```
 
 Re-POSTing the same `match_id` is a no-op. Pass + remaining quota enqueues `generate-resume` and decrements `users.quota_remaining`. Rejections are persisted (`gate_verdict` / `gate_reason`). Profile text is never logged.
+
+Generate a resume for a screened match (three skill buckets, cached work-history prefix, claim → source-span map), then verify it:
+
+```bash
+# Live generation needs LLM_API_KEY (GENERATION_MODEL, default gemini-3.5-pro).
+curl -s -X POST http://localhost:8080/handlers/generate-resume \
+  -H 'content-type: application/json' \
+  -d '{"match_id":"<match uuid>"}'
+
+# Live verify stages 2–3 need VERIFY_API_KEY or ANTHROPIC_API_KEY
+# (VERIFY_MODEL, default claude-sonnet-4-5 — different family than generate).
+curl -s -X POST http://localhost:8080/handlers/verify-resume \
+  -H 'content-type: application/json' \
+  -d '{"generation_id":"<generation uuid>"}'
+```
+
+Re-POSTing the same generate `attempt` is a no-op. Verify runs a deterministic stage (employers / titles / dates / numbers / skill subset) plus JD-blind grounding and JD-aware coverage. Failure regenerates once with the named violations, then flags `needs_review`. Resume text is never logged.
 
 Smoke a single board through the HTTP handlers:
 

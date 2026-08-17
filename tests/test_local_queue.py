@@ -42,26 +42,24 @@ def test_local_queue_delivers_to_stub_handler(local_server: str) -> None:
     assert [name for name, _ in events] == ["extract-job"]
 
 
-def test_stub_chain_enqueues_end_to_end(local_server: str) -> None:
-    """Remaining stubs still fan out when follow_chain=true."""
-    from app.handlers import STUB_HANDLER_NAMES
-
-    chain = STUB_HANDLER_NAMES
-    queue = LocalTaskQueue(local_server)
-    queue.enqueue(
-        "generate-resume",
-        {"run_id": "chain-1", "follow_chain": True},
+def test_generate_and_verify_missing_ids_are_2xx(local_server: str) -> None:
+    """Real generate/verify handlers return 2xx on permanent input failures."""
+    generate = httpx.post(
+        f"{local_server}/handlers/generate-resume",
+        json={"run_id": "no-match"},
+        timeout=5.0,
     )
+    assert generate.status_code == 200
+    assert generate.json()["action"] == "missing_match_id"
+    assert generate.json()["verify_enqueued"] is False
 
-    def full_chain_seen() -> bool:
-        seen = {name for name, _ in get_received()}
-        return set(chain).issubset(seen)
-
-    _wait_for(full_chain_seen, timeout=15.0)
-
-    order = [name for name, _ in get_received()]
-    first_index = {name: order.index(name) for name in chain}
-    assert [first_index[name] for name in chain] == list(range(len(chain)))
+    verify = httpx.post(
+        f"{local_server}/handlers/verify-resume",
+        json={"run_id": "no-generation"},
+        timeout=5.0,
+    )
+    assert verify.status_code == 200
+    assert verify.json()["action"] == "missing_generation_id"
 
     health = httpx.get(f"{local_server}/health", timeout=5.0)
     assert health.status_code == 200
