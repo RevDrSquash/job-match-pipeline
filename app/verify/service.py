@@ -24,7 +24,7 @@ from app.privacy import log_profile_access
 from app.profile.deps import build_skill_linker
 from app.queue import TaskQueue
 from app.skills.linker import SkillLinker
-from app.verify.deterministic import DeterministicFailure, run_deterministic_checks
+from app.verify.deterministic import run_deterministic_checks
 from app.verify.llm import VerifyLLM, build_verify_llm, log_verify_usage
 
 logger = logging.getLogger(__name__)

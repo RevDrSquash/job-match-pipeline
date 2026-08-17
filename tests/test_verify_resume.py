@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
 
@@ -18,11 +17,10 @@ from app.config import Settings
 from app.db.models import Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
 from app.extract.llm import LLMUsage, RetryableLLMError
-from app.generate.schema import Claim, GeneratedResume
+from app.generate.schema import GeneratedResume
 from app.generate.service import generate_resume
 from app.main import create_app
 from app.queue import LocalTaskQueue
-from app.skills.linker import InMemorySkillLinker, SkillRecord
 from app.verify.llm import (
     COVERAGE_SYSTEM_PROMPT,
     GROUNDING_SYSTEM_PROMPT,

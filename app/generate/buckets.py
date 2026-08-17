@@ -41,19 +41,24 @@ class SkillBuckets:
                 "MATCHED skills (user has them, JD wants them).",
                 "Surface these prominently. Prefer the JD's phrasing when it",
                 "does not change the claim. Do not find-replace skill terms.",
-                *(item.render() for item in self.matched) or ["- (none)"],
+                *_or_none(self.matched),
                 "",
                 "ADJACENT skills (taxonomy sibling/parent — not the same skill).",
                 "Frame the bridge honestly, e.g. 'AWS (Amazon Web Services)'.",
                 "Do not claim the JD skill itself.",
-                *(item.render() for item in self.adjacent) or ["- (none)"],
+                *_or_none(self.adjacent),
                 "",
                 "MISSING skills (JD wants them, user does not have them).",
                 "Do not invent these under any circumstances. Do not claim them,",
                 "imply them, or add numbers/years that would cover them.",
-                *(item.render() for item in self.missing) or ["- (none)"],
+                *_or_none(self.missing),
             ]
         )
+
+
+def _or_none(items: list[SkillBucketItem]) -> list[str]:
+    rendered = [item.render() for item in items]
+    return rendered or ["- (none)"]
 
 
 def assemble_skill_buckets(

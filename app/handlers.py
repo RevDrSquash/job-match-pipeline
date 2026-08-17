@@ -347,12 +347,16 @@ def create_handlers_router(
                     raise
         except RetryableLLMError:
             logger.exception("generate-resume retryable failure")
-            raise HTTPException(status_code=503, detail="retryable generate-resume failure") from None
+            raise HTTPException(
+                status_code=503, detail="retryable generate-resume failure"
+            ) from None
         except HTTPException:
             raise
         except Exception:
             logger.exception("generate-resume unexpected failure")
-            raise HTTPException(status_code=500, detail="retryable generate-resume failure") from None
+            raise HTTPException(
+                status_code=500, detail="retryable generate-resume failure"
+            ) from None
 
         return {
             "status": "ok",
@@ -402,7 +406,11 @@ def create_handlers_router(
                 "cost_usd": 0.0,
                 "regenerate_enqueued": False,
             }
-        if raw_generation_id in (None, "") and raw_match_id not in (None, "") and match_uuid is None:
+        if (
+            raw_generation_id in (None, "")
+            and raw_match_id not in (None, "")
+            and match_uuid is None
+        ):
             logger.info("verify-resume permanent failure action=invalid_match_id")
             return {
                 "status": "ok",
