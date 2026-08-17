@@ -26,3 +26,5 @@ htmlcov/
 # Local data
 *.log
 pgdata/
+data/esco/*.csv
+data/esco/*.csv.gz

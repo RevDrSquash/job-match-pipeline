@@ -209,6 +209,11 @@ jobs
 companies
   id, name, ats_provider, board_token, country, discovered_via
 
+skills
+  id                       -- opaque taxonomy id (ESCO concept URI in the PoC)
+  canonical_label, alt_labels[], description
+  embedding vector(768)    -- span-similarity fallback for the linker
+
 users
   id, tier, quota_remaining, quota_reset_at
 

@@ -76,6 +76,34 @@ pytest
 ruff check .
 ```
 
+## Skill taxonomy (ESCO)
+
+Canonical skill linking is shared by `extract-job` and profile parsing
+(`app/skills/`). The PoC taxonomy is **ESCO** (~14k skills); the linker is
+taxonomy-agnostic so O*NET can replace it later.
+
+**License:** ESCO data is published by the European Commission under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (see the
+[ESCO copyright notice](https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences)).
+Attribute “ESCO © European Union” when redistributing derived data. The skills
+pillar also incorporates O*NET (USDOL/ETA, CC BY 4.0) and Canadian glossary
+elements — credit those sources as required by the notice.
+
+Load into Postgres (idempotent upsert on skill id):
+
+```bash
+# Preferred: official CSV from https://esco.ec.europa.eu/en/use-esco/download
+# (classification / en / csv → skills_en.csv)
+python -m scripts.load_esco --csv /path/to/skills_en.csv
+
+# Or fetch via the public ESCO API and cache data/esco/skills_en.csv
+python -m scripts.load_esco
+```
+
+Re-running the loader updates existing rows; it does not duplicate. Pass
+`--no-embeddings` to skip the PoC hashing embeddings (exact/alias linking
+still works). See `scripts/load_esco.py` for flags.
+
 ## Conventions (baked into handlers)
 
 - Handlers are idempotent HTTP POST endpoints.

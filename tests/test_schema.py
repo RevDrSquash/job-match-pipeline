@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Company, Job, PipelineEvent, User, UserFilter, UserProfile
+from app.db.models import Company, Job, PipelineEvent, Skill, User, UserFilter, UserProfile
 from app.db.session import get_engine, normalize_database_url
 
 
@@ -204,6 +204,25 @@ def test_url_hash_upsert(db_session: Session) -> None:
 
     assert updated.id == job_id
     assert updated.title == "Updated title"
+
+
+@requires_db
+def test_skills_table_round_trip(db_session: Session) -> None:
+    skill = Skill(
+        id="http://data.europa.eu/esco/skill/fixture-aws",
+        canonical_label="Amazon Web Services",
+        alt_labels=["AWS"],
+        description="Cloud platform",
+        embedding=_unit_vector(768, 3),
+    )
+    db_session.add(skill)
+    db_session.flush()
+
+    loaded = db_session.get(Skill, skill.id)
+    assert loaded is not None
+    assert loaded.canonical_label == "Amazon Web Services"
+    assert loaded.alt_labels == ["AWS"]
+    assert list(loaded.embedding)[3] == pytest.approx(1.0)
 
 
 @requires_db
