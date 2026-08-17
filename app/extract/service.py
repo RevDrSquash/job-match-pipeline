@@ -63,7 +63,8 @@ def extract_job(
     job = session.get(Job, job_uuid)
     if job is None:
         logger.info("extract-job permanent failure action=not_found")
-        record_pipeline_event(session, stage=STAGE, action="not_found", job_id=job_uuid)
+        # job_id has an FK to jobs — cannot store an id that does not exist.
+        record_pipeline_event(session, stage=STAGE, action="not_found")
         session.flush()
         return ExtractResult(action="not_found", job_id=str(job_uuid))
 

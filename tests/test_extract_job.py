@@ -469,4 +469,4 @@ def test_missing_job_is_not_found(db_session: Session) -> None:
     events = db_session.scalars(
         select(PipelineEvent).where(PipelineEvent.stage == "extract-job")
     ).all()
-    assert any(e.action == "not_found" for e in events)
+    assert any(e.action == "not_found" and e.job_id is None for e in events)
