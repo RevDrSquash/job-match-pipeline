@@ -209,7 +209,7 @@ def test_url_hash_upsert(db_session: Session) -> None:
 @requires_db
 def test_skills_table_round_trip(db_session: Session) -> None:
     skill = Skill(
-        id="http://data.europa.eu/esco/skill/fixture-aws",
+        id="http://data.europa.eu/esco/skill/schema-test-only",
         canonical_label="Amazon Web Services",
         alt_labels=["AWS"],
         description="Cloud platform",
