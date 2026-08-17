@@ -1,0 +1,5 @@
+conceptUri,conceptType,preferredLabel,altLabels,description
+http://data.europa.eu/esco/skill/fixture-aws,SK,Amazon Web Services,AWS | amazon web services,Cloud computing platform by Amazon.
+http://data.europa.eu/esco/skill/fixture-python,SK,Python,Python programming | Python development,Write software using the Python language.
+http://data.europa.eu/esco/skill/fixture-k8s,SK,manage Kubernetes,Kubernetes administration | k8s,Administer Kubernetes clusters.
+http://data.europa.eu/esco/skill/fixture-group,SG,software skills,,Group node — must be skipped by the loader.

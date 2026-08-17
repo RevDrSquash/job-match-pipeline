@@ -41,6 +41,13 @@ DEF-14 lists ATS-endpoint ToS review as a blocker "before building." Strictly, e
 
 Not inconsistencies — just decisions the docs deliberately leave open that the scaffold has to pick something for:
 
-* **Embedding model** — docs fix the dimension (768) but not the model. Pick any 768-dim model for the PoC and record it; the dimension is what the schema depends on.
-* **Skill taxonomy** — "ESCO (~13.9k skills) or O*NET." PoC should pick one (ESCO is the one with a download-and-go CSV distribution) and keep the linker behind an interface.
+* **Embedding model** — docs fix the dimension (768) but not the model. **PoC
+  default for skill-span linking:** deterministic feature-hashing embedder in
+  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d). Job/profile document
+  embeddings are still unpinned — pick a real 768-d model when wiring
+  `extract-job` / profile synthesis and record it here.
+* **Skill taxonomy** — **ESCO** chosen for the PoC (CSV distribution + public
+  API; see `scripts/load_esco.py` and README). Linker stays behind
+  `app/skills.SkillLinker` with no ESCO types outside the loader. O*NET remains
+  the named alternative.
 * **Migration tooling** — docs say "schema migration" without naming a tool; Alembic is the default for a FastAPI/Postgres stack.
