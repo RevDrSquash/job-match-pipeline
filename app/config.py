@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     queue_impl: str = "local"
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/jobmatch"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/jobmatch"
     local_queue_base_url: str = "http://localhost:8080"
 
     # PoC/test only: in-memory handler receipt log + GET /_debug/received.
