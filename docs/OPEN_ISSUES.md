@@ -41,6 +41,18 @@ DEF-14 lists ATS-endpoint ToS review as a blocker "before building." Strictly, e
 
 Not inconsistencies — just decisions the docs deliberately leave open that the scaffold has to pick something for:
 
-* **Embedding model** — docs fix the dimension (768) but not the model. Pick any 768-dim model for the PoC and record it; the dimension is what the schema depends on.
-* **Skill taxonomy** — "ESCO (~13.9k skills) or O*NET." PoC should pick one (ESCO is the one with a download-and-go CSV distribution) and keep the linker behind an interface.
+* **Embedding model** — **Resolved for the PoC in §7.** Docs fix the dimension (768) but not the model. Job and profile documents use the same model.
+* **Skill taxonomy** — **PoC pick: ESCO.** The linker (`app/skills`) is the only place that matches skill-name strings. The PoC ships a seed of common software-engineering concepts with `esco:<slug>` IDs. Swapping the seed for a downloaded ESCO CSV (official concept URIs) is a data change, not a call-site change.
 * **Migration tooling** — docs say "schema migration" without naming a tool; Alembic is the default for a FastAPI/Postgres stack.
+
+## 7. Embedding model (PoC)
+
+**Choice:** OpenAI `text-embedding-3-small` with `dimensions=768`.
+
+Same model for job documents (`extract-job`) and profile documents (`profile ingest`). Configured via `EMBEDDING_MODEL` / `EMBEDDING_DIM` in `app/config.py` — not hardcoded at call sites.
+
+Why this one: native 768-dim output (the schema constraint), a single HTTP API, no local GPU, and an OpenAI-compatible wire format so a Vertex/Gemini endpoint can be swapped in later without changing callers.
+
+When `EMBEDDING_API_KEY` / `LLM_API_KEY` is unset, the client falls back to a deterministic hash embedder so the CLI and tests can write a real `vector(768)` without calling a vendor. That stand-in is **not** for matching quality.
+
+Revisit Vertex `text-embedding-004` (`outputDimensionality=768`) when GCP is wired up — same dimension, in-family with the rest of the stack.

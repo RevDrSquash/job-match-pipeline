@@ -33,6 +33,23 @@ Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` agains
 
 Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`.
 
+## Profile CLI (PoC)
+
+No UI yet — ingest the test resume from the command line. This writes `users`, `user_profiles` (structured `work_history` with `source: parsed` and stable span IDs, linked `skill_ids`, synthesized JD-shaped doc, 768-dim embedding), and default `user_filters`.
+
+```bash
+# Offline structured parser (no LLM key). Real ingest uses LLM_IMPL=openai + LLM_API_KEY.
+export EMBEDDING_IMPL=hash   # or leave unset; hash is used automatically without a key
+
+jobmatch profile ingest path/to/resume.pdf --fallback-parser --json
+jobmatch profile show --user-id <uuid>
+jobmatch profile edit <uuid> --comp-floor 140000
+```
+
+`python -m app` is the same entry point. `profile edit` bumps `profile_version` and sets `rematch_needed`; it does not trigger a rematch (the scheduled `match-batch` dirty path does).
+
+Resume text is never written to application logs or exception traces. `profile show` prints the structured result to stdout for manual review.
+
 Smoke the stub chain (opt-in: each handler enqueues the next only when `follow_chain` is true; default is off):
 
 ```bash

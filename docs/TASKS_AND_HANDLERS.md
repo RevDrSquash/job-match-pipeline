@@ -191,6 +191,14 @@ Failure → regenerate once with the specific violations named, then flag for hu
 
 ---
 
+## Profile ingestion (PoC CLI, not a handler)
+
+Profile parse is 1× per user and is not on the job-ingest path, so it is a CLI rather than a `/handlers/*` endpoint until the UI issue lands. `jobmatch profile ingest` writes `users`, `user_profiles`, and default `user_filters`; `jobmatch profile edit` bumps `profile_version` and sets `rematch_needed` (the scheduled `match-batch` dirty path picks it up — the edit does not enqueue work).
+
+Each `work_history` entry carries per-entry `source: parsed | user_asserted` and every bullet has a stable `span_id` (`wh:{role}:{bullet}` after deterministic role sort) for `verify-resume`.
+
+---
+
 ## Data model sketch
 
 ```

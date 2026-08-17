@@ -57,6 +57,16 @@ Rate limiting and bot protection are required, not optional, on every unauthenti
 
 ### 2. Profile / resume ingestion
 
+**PoC (DEF-19):** there is no UI yet. The same pipeline is a CLI:
+
+```
+jobmatch profile ingest <resume-file>   # PDF, markdown, or text
+jobmatch profile show [--user-id UUID]
+jobmatch profile edit <user-id> ...     # bumps profile_version, sets rematch_needed
+```
+
+See the README for flags and env vars. `profile show` is the review/correction surface until this UI exists.
+
 **v1:** upload or paste resume → parse into structured work history → extract and ESCO-link skills → build synthesized profile document + embedding.
 
 Users must be able to review and correct the parse. Extraction errors here propagate to every match and every generated resume, and the user is the only one who can catch them.
