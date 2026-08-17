@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, and a `job-match-seed` CLI for the ~500-posting corpus. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch profile` CLI for resume ingestion. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -51,7 +51,7 @@ Extract a seeded job (lazy; cached on `extracted_at`):
 ```bash
 # Live extraction needs LLM_API_KEY or GEMINI_API_KEY.
 # EMBEDDING_PROVIDER=hashing (default) writes 768-d hashing vectors offline;
-# set EMBEDDING_PROVIDER=gemini to use text-embedding-004.
+# set EMBEDDING_PROVIDER=gemini to use gemini-embedding-001 (768-d truncation).
 curl -s -X POST http://localhost:8080/handlers/extract-job \
   -H 'content-type: application/json' \
   -d '{"job_id":"<job uuid>"}'
@@ -68,6 +68,26 @@ curl -s -X POST http://localhost:8080/handlers/fetch-link-list \
 ```
 
 `ENABLE_DEBUG_CAPTURE=true` turns on an in-memory receipt log and `GET /_debug/received` for local tests. Leave it false (the default) outside PoC/test so it cannot ship to Cloud Run.
+
+## Profile CLI (PoC)
+
+No UI yet — ingest the test resume from the command line. This writes `users`, `user_profiles` (structured `work_history` with `source: parsed` and stable span IDs, linked `skill_ids`, synthesized JD-shaped doc, 768-dim embedding), and default `user_filters`.
+
+```bash
+# Offline: --fallback-parser needs no API key, and EMBEDDING_PROVIDER=hashing
+# (the default) writes 768-d hashing vectors. Real ingest uses
+# PROFILE_PARSER=gemini + LLM_API_KEY (same key as extract-job).
+
+jobmatch profile ingest path/to/resume.pdf --fallback-parser --json
+jobmatch profile show --user-id <uuid>
+jobmatch profile edit <uuid> --comp-floor 140000
+```
+
+`python -m app` is the same entry point. `profile edit` bumps `profile_version` and sets `rematch_needed`; it does not trigger a rematch (the scheduled `match-batch` dirty path does).
+
+Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below); when the table is empty the CLI falls back to a small built-in seed taxonomy. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
+
+Resume text is never written to application logs or exception traces. `profile show` prints the structured result to stdout for manual review.
 
 ## Local development (without Docker for the app)
 

@@ -6,13 +6,20 @@ loading (ESCO for the PoC; O*NET is the named alternative) stays in
 """
 
 from app.skills.embeddings import Embedder, HashingEmbedder
-from app.skills.linker import InMemorySkillLinker, SkillLinker, SkillRecord, link_spans
+from app.skills.linker import (
+    InMemorySkillLinker,
+    ScanHit,
+    SkillLinker,
+    SkillRecord,
+    link_spans,
+)
 from app.skills.normalize import normalize_label
 
 __all__ = [
     "Embedder",
     "HashingEmbedder",
     "InMemorySkillLinker",
+    "ScanHit",
     "SkillLinker",
     "SkillRecord",
     "link_spans",

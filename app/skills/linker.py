@@ -18,6 +18,40 @@ from app.skills.normalize import normalize_label
 # trained model; require a strong match and otherwise refuse to link.
 DEFAULT_SIMILARITY_THRESHOLD = 0.72
 
+# Terms too ambiguous to match as whole-word hits when scanning free text
+# (fine for explicit spans, dangerous inside prose).
+_AMBIGUOUS_SCAN_TERMS = frozenset(
+    {
+        "c",
+        "r",
+        "go",
+        "js",
+        "ts",
+        "ml",
+        "tf",
+        "pg",
+        "rest",
+        "node",
+        "spark",
+        "rails",
+        "spring",
+        "express",
+        "lambda",
+        "s3",
+        "ec2",
+        "rds",
+        "git",
+        "excel",
+        "docs",
+        "shell",
+        "unix",
+        "mongo",
+        "torch",
+        "scrum",
+        "kanban",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class SkillRecord:
@@ -28,6 +62,14 @@ class SkillRecord:
     alt_labels: tuple[str, ...] = ()
     description: str | None = None
     embedding: tuple[float, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanHit:
+    """A taxonomy term found inside free text by ``scan_text``."""
+
+    skill_id: str
+    matched_text: str
 
 
 @dataclass
@@ -49,6 +91,12 @@ class SkillLinker(Protocol):
         each span). Unknown / low-confidence spans contribute nothing — never a
         bad speculative link.
         """
+
+    def labels_for(self, skill_ids: Sequence[str]) -> list[str]:
+        """Preferred labels for linked ids (unknown ids echo the id)."""
+
+    def scan_text(self, text: str) -> list[ScanHit]:
+        """Find taxonomy terms inside free text (used by offline profile parse)."""
 
 
 class InMemorySkillLinker:
@@ -84,6 +132,16 @@ class InMemorySkillLinker:
             exact_index=exact,
             embedder=embedder,
             threshold=similarity_threshold,
+        )
+        # Longest-first so multiword phrases win over terms nested inside them.
+        self._scan_terms: list[tuple[str, str]] = sorted(
+            (
+                (key, skill_id)
+                for key, skill_id in exact.items()
+                if len(key) > 2 and key not in _AMBIGUOUS_SCAN_TERMS
+            ),
+            key=lambda item: len(item[0]),
+            reverse=True,
         )
         if embedder is not None and build_missing_embeddings:
             self._ensure_vectors()
@@ -131,6 +189,24 @@ class InMemorySkillLinker:
             return exact_id
 
         return self._similarity_link(span)
+
+    def scan_text(self, text: str) -> list[ScanHit]:
+        """Find taxonomy terms in free text (exact/alias index, token-bounded).
+
+        Used by the offline profile parser when a resume has no explicit
+        skills section. Short / ambiguous terms are skipped — a missed skill
+        is recoverable via ``profile edit``; a wrong one poisons matching.
+        """
+        haystack = f" {normalize_label(text)} "
+        hits: list[ScanHit] = []
+        seen: set[str] = set()
+        for key, skill_id in self._scan_terms:
+            if skill_id in seen:
+                continue
+            if f" {key} " in haystack:
+                seen.add(skill_id)
+                hits.append(ScanHit(skill_id=skill_id, matched_text=key))
+        return hits
 
     def _similarity_link(self, span: str) -> str | None:
         embedder = self._index.embedder

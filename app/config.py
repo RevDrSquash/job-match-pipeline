@@ -26,14 +26,29 @@ class Settings(BaseSettings):
     # so there is no residency/ZDR constraint (docs/PRIVACY_AND_COMPLIANCE.md).
     llm_api_key: str = ""
     llm_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
-    extraction_model: str = "gemini-2.5-flash-lite"
-    extraction_input_usd_per_mtok: float = 0.10
-    extraction_output_usd_per_mtok: float = 0.40
+    # gemini-2.5-flash-lite retires with the 2.5 series (~Oct 2026);
+    # 3.5-flash-lite is the current GA budget tier.
+    extraction_model: str = "gemini-3.5-flash-lite"
+    extraction_input_usd_per_mtok: float = 0.30
+    extraction_output_usd_per_mtok: float = 2.50
     # 768-d document embeddings — same model for jobs and profiles.
-    # hashing = offline PoC; gemini = text-embedding-004 (see OPEN_ISSUES §6).
+    # hashing = offline stand-in (tests / no key); gemini = gemini-embedding-001
+    # truncated to 768 (see OPEN_ISSUES §6). PoC quality checks need gemini.
     embedding_provider: str = "hashing"
-    embedding_model: str = "text-embedding-004"
-    embedding_usd_per_mtok: float = 0.025
+    embedding_model: str = "gemini-embedding-001"
+    embedding_usd_per_mtok: float = 0.15
+
+    # Profile parse (CLI). Resume text IS personal information — ZDR vendor
+    # terms are a production blocker (docs/PRIVACY_AND_COMPLIANCE.md).
+    # profile_parser: gemini | fallback (offline structured parser)
+    profile_parser: str = "gemini"
+    profile_parse_model: str = "gemini-3.5-flash-lite"
+    profile_parse_input_usd_per_mtok: float = 0.30
+    profile_parse_output_usd_per_mtok: float = 2.50
+
+    # New-user defaults (see docs/COST_MODEL.md — free tier in the tens of resumes/mo)
+    default_user_tier: str = "free"
+    default_quota_remaining: int = 20
 
 
 @lru_cache
