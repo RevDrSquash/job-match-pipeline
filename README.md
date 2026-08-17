@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept scaffold. FastAPI handler stubs, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), and docker-compose (pgvector Postgres + app) are in place. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept scaffold. FastAPI handler stubs, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), and Alembic migrations for the full data model are in place. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -20,11 +20,16 @@ Local proof-of-concept scaffold. FastAPI handler stubs, `TaskQueue` abstraction 
 ```bash
 cp .env.example .env
 docker compose up --build
+# In another terminal (or after db is healthy):
+pip install -e '.[dev]'
+alembic upgrade head
 ```
 
 - App: http://localhost:8080/health
 - Handlers: `POST http://localhost:8080/handlers/{name}`
 - Postgres: `localhost:5432` (db `jobmatch`, user/password `postgres`)
+
+Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` against the compose DB before exercising handlers that touch Postgres.
 
 Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`.
 
@@ -65,6 +70,8 @@ This queue abstraction is the only environment-specific code path.
 
 ```bash
 pip install -e '.[dev]'
+docker compose up db -d   # schema tests need Postgres + pgvector
+alembic upgrade head
 pytest
 ruff check .
 ```

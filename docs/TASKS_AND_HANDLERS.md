@@ -213,28 +213,28 @@ users
   id, tier, quota_remaining, quota_reset_at
 
 user_profiles
-  user_id, work_history (structured)
+  user_id, work_history (structured JSONB; each entry includes source: parsed | user_asserted)
   skill_ids[]              -- canonical
   synthesized_doc, embedding vector(768)
   profile_version          -- cache key for context block
   rematch_needed           -- dirty flag; set on edit, cleared by match-batch
-  source                   -- parsed | user_asserted (per work_history entry)
 
 user_filters
   user_id, title_families[], locations[], comp_floor,
   seniority_band, work_arrangement[]
 
 matches
-  user_id, job_id, cycle_at
+  id, user_id, job_id, cycle_at
   rerank_score, gate_verdict, gate_reason
   matched_skills[], adjacent_skills[], missing_skills[]
 
 generations
-  match_id, resume_doc, claim_source_map
+  id, match_id, resume_doc, claim_source_map
   verify_status, verify_failures[]
 
 pipeline_events                        -- the training set
-  user_id, job_id, stage, score, action, ts
+  id, user_id (nullable, no FK — strippable for anonymization), job_id,
+  stage, score, action, ts
 ```
 
 `pipeline_events` is not incidental logging. Every `(user, job, stage, score, action)` tuple — shown, skipped, gate-rejected, generated, applied — is the dataset for a fine-tuned person-job-fit encoder later, and the main defensible asset. Populate it from the first day of the local proof of concept.

@@ -25,7 +25,9 @@ The Queues table in Tasks and Handlers lists five queues but both Scheduler-trig
 
 ## 4. Schema sketch is not migration-ready
 
-Expected — it's labeled a sketch — but the migration must resolve, at minimum:
+**Resolved in DEF-16.** The initial Alembic migration adds primary keys on `matches`, `generations`, and `pipeline_events`; moves work-history provenance (`source: parsed | user_asserted`) inside each `work_history` JSONB entry on `user_profiles`; and keeps `pipeline_events.user_id` as a nullable column with no FK so user linkage can be stripped on anonymization.
+
+Original sketch gaps (for history):
 
 * Primary keys on `matches`, `generations`, `pipeline_events` (`generations.match_id` implies `matches` needs an `id`)
 * `user_profiles.source` is annotated "per work_history entry" but placed at table level — provenance belongs inside the structured `work_history` entries, not as a table column
