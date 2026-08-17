@@ -54,7 +54,9 @@ def _add_user(
     session.add(
         UserProfile(
             user_id=user.id,
-            work_history=[{"employer": "Prior Co", "title": "Engineer", "source": "parsed", "bullets": []}],
+            work_history=[
+                {"employer": "Prior Co", "title": "Engineer", "source": "parsed", "bullets": []}
+            ],
             skill_ids=skill_ids or ["esco:python", "esco:cloudformation"],
             synthesized_doc="Title: Backend Engineer\nSkills: Python",
             embedding=embedding if embedding is not None else _unit_vector(768, 0),
@@ -67,7 +69,9 @@ def _add_user(
             locations=locations if locations is not None else ["Remote"],
             comp_floor=comp_floor,
             work_arrangement=["remote"],
-            title_families=title_families if title_families is not None else ["Backend Engineering"],
+            title_families=(
+                title_families if title_families is not None else ["Backend Engineering"]
+            ),
         )
     )
     session.flush()
@@ -110,7 +114,9 @@ def _add_job(
     return job
 
 
-def _seed_pair(session: Session, *, extracted: bool, rematch_needed: bool = False, **job_kw: Any) -> tuple[User, Job]:
+def _seed_pair(
+    session: Session, *, extracted: bool, rematch_needed: bool = False, **job_kw: Any
+) -> tuple[User, Job]:
     location = job_kw.pop("location", None) or _unique_location()
     user = _add_user(session, rematch_needed=rematch_needed, locations=[location])
     job = _add_job(session, extracted=extracted, location=location, **job_kw)
@@ -177,16 +183,15 @@ def test_two_cycle_deferral_for_unextracted_jobs(db_session: Session) -> None:
     assert match.adjacent_skills == ["esco:terraform"]
     assert "esco:python" not in (match.missing_skills or [])
 
-    actions = [
-        e.action
-        for e in db_session.scalars(
-            select(PipelineEvent).where(PipelineEvent.stage == "match-batch")
-        ).all()
-    ]
-    assert actions.count("enqueued_extract") == 1
-    assert "matched" in actions
-    assert "enqueued_screen" in actions
-    assert actions.count("completed") == 2
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.stage == "match-batch")
+    ).all()
+    job_actions = [e.action for e in events if e.job_id == job.id]
+    user_actions = [e.action for e in events if e.user_id == user.id]
+    assert job_actions.count("enqueued_extract") == 1
+    assert "deferred_unextracted" in user_actions
+    assert "matched" in user_actions
+    assert "enqueued_screen" in user_actions
 
 
 @requires_db
@@ -383,7 +388,13 @@ def _cleanup_match_fixture(user_id: uuid.UUID, job_id: uuid.UUID) -> None:
         session.execute(delete(Match).where(Match.user_id == user_id))
         session.execute(
             delete(PipelineEvent).where(
-                (PipelineEvent.user_id == user_id) | (PipelineEvent.job_id == job_id)
+                (PipelineEvent.user_id == user_id)
+                | (PipelineEvent.job_id == job_id)
+                | (
+                    (PipelineEvent.stage == "match-batch")
+                    & (PipelineEvent.user_id.is_(None))
+                    & (PipelineEvent.job_id.is_(None))
+                )
             )
         )
         session.execute(delete(Job).where(Job.id == job_id))

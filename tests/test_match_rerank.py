@@ -34,7 +34,12 @@ def test_hosted_reranker_uses_api_scores() -> None:
     ]
     response = httpx.Response(
         200,
-        json={"results": [{"index": 1, "relevance_score": 0.95}, {"index": 0, "relevance_score": 0.2}]},
+        json={
+            "results": [
+                {"index": 1, "relevance_score": 0.95},
+                {"index": 0, "relevance_score": 0.2},
+            ]
+        },
         request=httpx.Request("POST", "https://example.test/rerank"),
     )
     reranker = HostedReranker(api_url="https://example.test/rerank", api_key="k", model="rerank-v1")

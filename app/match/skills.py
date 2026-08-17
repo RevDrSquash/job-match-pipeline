@@ -60,7 +60,9 @@ def skill_buckets(
     return matched, adjacent, missing
 
 
-def jaccard_overlap(job_skill_ids: Sequence[str] | None, profile_skill_ids: Sequence[str] | None) -> float:
+def jaccard_overlap(
+    job_skill_ids: Sequence[str] | None, profile_skill_ids: Sequence[str] | None
+) -> float:
     job_set = set(job_skill_ids or [])
     profile_set = set(profile_skill_ids or [])
     if not job_set and not profile_set:

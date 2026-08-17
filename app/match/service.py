@@ -122,10 +122,12 @@ def match_batch(
 
     already_today = _matches_since_day_start(session, user_ids, cycle_at)
     already_this_cycle = _pairs_for_cycle(session, cycle_at)
-    label_map = _skill_labels(
-        session,
-        {skill_id for cand in extracted for skill_id in (*cand.job_skill_ids, *cand.profile_skill_ids)},
-    )
+    skill_ids = {
+        skill_id
+        for cand in extracted
+        for skill_id in (*cand.job_skill_ids, *cand.profile_skill_ids)
+    }
+    label_map = _skill_labels(session, skill_ids)
 
     matches_written = 0
     screens_enqueued = 0

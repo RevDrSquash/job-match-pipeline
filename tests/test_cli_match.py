@@ -28,7 +28,10 @@ def test_match_run_posts_to_handler() -> None:
         request=httpx.Request("POST", "http://127.0.0.1:9/handlers/match-batch"),
     )
     with patch("app.cli.httpx.post", return_value=response) as post:
-        assert main(["match", "run", "--mode", "incremental", "--base-url", "http://127.0.0.1:9"]) == 0
+        code = main(
+            ["match", "run", "--mode", "incremental", "--base-url", "http://127.0.0.1:9"]
+        )
+        assert code == 0
     post.assert_called_once()
     args, kwargs = post.call_args
     assert args[0] == "http://127.0.0.1:9/handlers/match-batch"
