@@ -43,13 +43,13 @@ def test_local_queue_delivers_to_stub_handler(local_server: str) -> None:
 
 
 def test_stub_chain_enqueues_end_to_end(local_server: str) -> None:
-    """extract-job (real) still fans into remaining stubs when follow_chain=true."""
+    """Remaining stubs still fan out when follow_chain=true."""
     from app.handlers import STUB_HANDLER_NAMES
 
-    chain = ("extract-job", *STUB_HANDLER_NAMES)
+    chain = STUB_HANDLER_NAMES
     queue = LocalTaskQueue(local_server)
     queue.enqueue(
-        "extract-job",
+        "screen-job",
         {"run_id": "chain-1", "follow_chain": True},
     )
 
@@ -96,14 +96,14 @@ def test_follow_chain_defaults_to_off(local_server: str) -> None:
 
 def test_debug_received_endpoint_when_enabled(local_server: str) -> None:
     httpx.post(
-        f"{local_server}/handlers/match-batch",
+        f"{local_server}/handlers/screen-job",
         json={"batch_id": "b-1"},
         timeout=5.0,
     )
     response = httpx.get(f"{local_server}/_debug/received", timeout=5.0)
     assert response.status_code == 200
     events = response.json()["events"]
-    assert any(e["handler"] == "match-batch" for e in events)
+    assert any(e["handler"] == "screen-job" for e in events)
 
 
 def test_debug_capture_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

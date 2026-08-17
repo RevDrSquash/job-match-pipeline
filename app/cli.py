@@ -4,6 +4,7 @@ Usage:
   jobmatch profile ingest <resume-file>
   jobmatch profile show [--user-id UUID]
   jobmatch profile edit <user-id> [corrections...]
+  jobmatch match run --mode incremental|dirty
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import logging
 import sys
 import uuid
 from pathlib import Path
+
+import httpx
 
 from app.config import Settings, get_settings
 from app.db.session import db_session
@@ -40,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "profile":
             return _dispatch_profile(args)
+        if args.command == "match":
+            return _dispatch_match(args)
         parser.print_help()
         return 2
     except PrivacySafeError as exc:
@@ -90,6 +95,41 @@ def _build_parser() -> argparse.ArgumentParser:
     edit.add_argument("--add-location", action="append", default=None)
     edit.add_argument("--add-title-family", action="append", default=None)
     edit.add_argument("--work-arrangement", default=None, help="Comma-separated values")
+
+    match = sub.add_parser("match", help="Trigger a match-batch cycle")
+    match_sub = match.add_subparsers(dest="match_command", required=True)
+    run = match_sub.add_parser(
+        "run",
+        help="POST /handlers/match-batch (Cloud Scheduler stand-in for the PoC)",
+    )
+    run.add_argument(
+        "--mode",
+        choices=("incremental", "dirty"),
+        required=True,
+        help="incremental: jobs since last cycle × all users; dirty: full corpus × rematch_needed",
+    )
+    run.add_argument(
+        "--since",
+        default=None,
+        help="ISO-8601 watermark override for incremental mode",
+    )
+    run.add_argument(
+        "--dirty-cap",
+        type=int,
+        default=None,
+        dest="dirty_profile_cap",
+        help="Max dirty profiles to process this run",
+    )
+    run.add_argument(
+        "--base-url",
+        default=None,
+        help="Handler base URL (default: LOCAL_QUEUE_BASE_URL)",
+    )
+    run.add_argument(
+        "--cycle-at",
+        default=None,
+        help="ISO-8601 cycle timestamp (tests / idempotent redelivery)",
+    )
     return parser
 
 
@@ -183,6 +223,31 @@ def _cmd_edit(args: argparse.Namespace, settings: Settings) -> int:
             linker=deps.linker,
         )
         print(json.dumps(bundle_to_dict(bundle), indent=2))
+    return 0
+
+
+def _dispatch_match(args: argparse.Namespace) -> int:
+    if args.match_command != "run":
+        return 2
+    settings = get_settings()
+    base = (args.base_url or settings.local_queue_base_url).rstrip("/")
+    url = f"{base}/handlers/match-batch"
+    payload: dict[str, object] = {"mode": args.mode}
+    if args.since:
+        payload["since"] = args.since
+    if args.dirty_profile_cap is not None:
+        payload["dirty_profile_cap"] = args.dirty_profile_cap
+    if args.cycle_at:
+        payload["cycle_at"] = args.cycle_at
+    try:
+        response = httpx.post(url, json=payload, timeout=120.0)
+    except httpx.HTTPError as exc:
+        print(f"error: match-batch request failed ({type(exc).__name__})", file=sys.stderr)
+        return 1
+    print(response.text)
+    if response.status_code >= 400:
+        print(f"error: handler returned {response.status_code}", file=sys.stderr)
+        return 1
     return 0
 
 
