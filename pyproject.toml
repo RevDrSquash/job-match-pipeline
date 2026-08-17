@@ -9,21 +9,21 @@ description = "Job matching pipeline: ingest, extract, match, and generate fabri
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.116.1",
-    "uvicorn[standard]==0.35.0",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.3",
     "httpx==0.28.1",
-    "pydantic-settings==2.10.1",
-    "google-cloud-tasks==2.19.2",
-    "sqlalchemy==2.0.43",
-    "alembic==1.16.4",
-    "psycopg[binary]==3.2.13",
-    "pgvector==0.4.1",
+    "pydantic-settings==2.15.0",
+    "google-cloud-tasks==2.24.0",
+    "sqlalchemy==2.0.52",
+    "alembic==1.19.1",
+    "psycopg[binary]==3.3.4",
+    "pgvector==0.5.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.4.1",
-    "ruff==0.12.8",
+    "pytest==9.1.1",
+    "ruff==0.16.3",
 ]
 
 [tool.hatch.build.targets.wheel]

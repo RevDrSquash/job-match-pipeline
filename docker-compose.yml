@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -13,7 +13,9 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18 images moved PGDATA under /var/lib/postgresql/<major>/,
+      # so the volume mounts the parent directory rather than .../data.
+      - pgdata:/var/lib/postgresql
 
   app:
     build: .
