@@ -1,19 +1,26 @@
-"""Skill-span → canonical ESCO id.
+"""Span → canonical skill_id linking.
 
-This is the only module that matches skill name strings. Callers pass raw
-spans (or full text via `scan_text`) and receive skill_ids.
+Exact / alias match first (cheap, high precision); embedding similarity over
+taxonomy *labels* as fallback. Spans that do not clear the similarity
+threshold return no link rather than a speculative one.
 """
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from functools import lru_cache
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
-from app.skills.taxonomy import SkillConcept, seed_concepts
+from app.skills.embeddings import Embedder, HashingEmbedder, cosine_similarity
+from app.skills.normalize import normalize_label
 
-# Short tokens that are too ambiguous to match as whole-word hits in a scan.
-_AMBIGUOUS_SHORT = frozenset(
+# Conservative default: hashing embedder scores are not calibrated like a
+# trained model; require a strong match and otherwise refuse to link.
+DEFAULT_SIMILARITY_THRESHOLD = 0.72
+
+# Terms too ambiguous to match as whole-word hits when scanning free text
+# (fine for explicit spans, dangerous inside prose).
+_AMBIGUOUS_SCAN_TERMS = frozenset(
     {
         "c",
         "r",
@@ -23,7 +30,6 @@ _AMBIGUOUS_SHORT = frozenset(
         "ml",
         "tf",
         "pg",
-        "k8",
         "rest",
         "node",
         "spark",
@@ -46,96 +52,222 @@ _AMBIGUOUS_SHORT = frozenset(
     }
 )
 
-_NON_ALNUM = re.compile(r"[^a-z0-9+#]+")
-_WS = re.compile(r"\s+")
+
+@dataclass(frozen=True, slots=True)
+class SkillRecord:
+    """One taxonomy entry. Vendor-agnostic — loaders map ESCO/O*NET into this."""
+
+    id: str
+    canonical_label: str
+    alt_labels: tuple[str, ...] = ()
+    description: str | None = None
+    embedding: tuple[float, ...] | None = None
 
 
-def normalize_skill_text(value: str) -> str:
-    text = value.strip().lower()
-    text = text.replace("c++", "cplusplus").replace("c#", "csharp")
-    text = _NON_ALNUM.sub(" ", text)
-    return _WS.sub(" ", text).strip()
+@dataclass(frozen=True, slots=True)
+class ScanHit:
+    """A taxonomy term found inside free text by ``scan_text``."""
 
-
-@dataclass(frozen=True)
-class LinkedSkill:
     skill_id: str
-    label: str
-    raw_span: str
-    score: float
+    matched_text: str
 
 
-class SkillLinker:
-    def __init__(self, concepts: tuple[SkillConcept, ...] | None = None) -> None:
-        self.concepts = concepts if concepts is not None else seed_concepts()
-        self._by_norm: dict[str, SkillConcept] = {}
-        self._scan_terms: list[tuple[str, SkillConcept]] = []
-        for concept in self.concepts:
-            forms = (concept.label, *concept.aliases)
-            for form in forms:
-                norm = normalize_skill_text(form)
-                if not norm:
+@dataclass
+class _IndexedTaxonomy:
+    records: dict[str, SkillRecord]
+    exact_index: dict[str, str]
+    embedder: Embedder | None
+    threshold: float
+    # Lazily filled when an embedder is present.
+    vectors: dict[str, list[float]] = field(default_factory=dict)
+
+
+@runtime_checkable
+class SkillLinker(Protocol):
+    def link_spans(self, spans: list[str]) -> list[str]:
+        """Map surface spans to canonical skill ids.
+
+        Returns only successfully linked ids (order follows first occurrence of
+        each span). Unknown / low-confidence spans contribute nothing — never a
+        bad speculative link.
+        """
+
+    def labels_for(self, skill_ids: Sequence[str]) -> list[str]:
+        """Preferred labels for linked ids (unknown ids echo the id)."""
+
+    def scan_text(self, text: str) -> list[ScanHit]:
+        """Find taxonomy terms inside free text (used by offline profile parse)."""
+
+
+class InMemorySkillLinker:
+    """Linker backed by an in-memory taxonomy snapshot.
+
+    Suitable for unit tests and for handlers that load ``skills`` once per
+    process. Database-backed construction goes through ``from_records``.
+    """
+
+    def __init__(
+        self,
+        records: Iterable[SkillRecord],
+        *,
+        embedder: Embedder | None = None,
+        similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+        build_missing_embeddings: bool = True,
+    ) -> None:
+        record_map: dict[str, SkillRecord] = {}
+        exact: dict[str, str] = {}
+        for record in records:
+            if record.id in record_map:
+                raise ValueError(f"duplicate skill id: {record.id}")
+            record_map[record.id] = record
+            for label in (record.canonical_label, *record.alt_labels):
+                key = normalize_label(label)
+                if not key:
                     continue
-                # First writer wins so preferred labels beat later aliases.
-                self._by_norm.setdefault(norm, concept)
-                self._scan_terms.append((norm, concept))
-        # Longer phrases first so "amazon web services" beats "aws" inside it...
-        # actually we scan for each term independently; longer-first helps
-        # phrase matching when we walk terms.
-        self._scan_terms.sort(key=lambda item: len(item[0]), reverse=True)
+                # First writer wins — loaders should not emit conflicting aliases.
+                exact.setdefault(key, record.id)
 
-    def link_spans(self, spans: list[str]) -> list[LinkedSkill]:
-        linked: list[LinkedSkill] = []
+        self._index = _IndexedTaxonomy(
+            records=record_map,
+            exact_index=exact,
+            embedder=embedder,
+            threshold=similarity_threshold,
+        )
+        # Longest-first so multiword phrases win over terms nested inside them.
+        self._scan_terms: list[tuple[str, str]] = sorted(
+            (
+                (key, skill_id)
+                for key, skill_id in exact.items()
+                if len(key) > 2 and key not in _AMBIGUOUS_SCAN_TERMS
+            ),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        if embedder is not None and build_missing_embeddings:
+            self._ensure_vectors()
+
+    @classmethod
+    def from_records(
+        cls,
+        records: Iterable[SkillRecord],
+        *,
+        embedder: Embedder | None = None,
+        similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    ) -> InMemorySkillLinker:
+        return cls(
+            records,
+            embedder=embedder,
+            similarity_threshold=similarity_threshold,
+        )
+
+    def link_spans(self, spans: list[str]) -> list[str]:
+        linked: list[str] = []
         seen: set[str] = set()
         for span in spans:
-            match = self.link_one(span)
-            if match is None or match.skill_id in seen:
+            skill_id = self.link_span(span)
+            if skill_id is None or skill_id in seen:
                 continue
-            seen.add(match.skill_id)
-            linked.append(match)
+            seen.add(skill_id)
+            linked.append(skill_id)
         return linked
 
-    def link_one(self, span: str) -> LinkedSkill | None:
-        norm = normalize_skill_text(span)
-        if not norm:
+    def labels_for(self, skill_ids: Sequence[str]) -> list[str]:
+        """Preferred labels for linked ids (unknown ids echo the id)."""
+        labels: list[str] = []
+        for skill_id in skill_ids:
+            record = self._index.records.get(skill_id)
+            labels.append(record.canonical_label if record is not None else skill_id)
+        return labels
+
+    def link_span(self, span: str) -> str | None:
+        key = normalize_label(span)
+        if not key:
             return None
-        direct = self._by_norm.get(norm)
-        if direct is not None:
-            return LinkedSkill(direct.skill_id, direct.label, span, 1.0)
-        # Span may be a short phrase containing a known skill ("Python scripting").
-        for term, concept in self._scan_terms:
-            if _contains_term(norm, term):
-                return LinkedSkill(concept.skill_id, concept.label, span, 0.8)
-        return None
 
-    def scan_text(self, text: str) -> list[LinkedSkill]:
-        """Find taxonomy hits in free text. Used by the offline fallback parser."""
-        norm = normalize_skill_text(text)
-        linked: list[LinkedSkill] = []
+        exact_id = self._index.exact_index.get(key)
+        if exact_id is not None:
+            return exact_id
+
+        return self._similarity_link(span)
+
+    def scan_text(self, text: str) -> list[ScanHit]:
+        """Find taxonomy terms in free text (exact/alias index, token-bounded).
+
+        Used by the offline profile parser when a resume has no explicit
+        skills section. Short / ambiguous terms are skipped — a missed skill
+        is recoverable via ``profile edit``; a wrong one poisons matching.
+        """
+        haystack = f" {normalize_label(text)} "
+        hits: list[ScanHit] = []
         seen: set[str] = set()
-        for term, concept in self._scan_terms:
-            if concept.skill_id in seen:
+        for key, skill_id in self._scan_terms:
+            if skill_id in seen:
                 continue
-            if term in _AMBIGUOUS_SHORT:
+            if f" {key} " in haystack:
+                seen.add(skill_id)
+                hits.append(ScanHit(skill_id=skill_id, matched_text=key))
+        return hits
+
+    def _similarity_link(self, span: str) -> str | None:
+        embedder = self._index.embedder
+        if embedder is None or not self._index.vectors:
+            return None
+
+        query = embedder.embed([span])[0]
+        best_id: str | None = None
+        best_score = self._index.threshold
+        for skill_id, vector in self._index.vectors.items():
+            score = cosine_similarity(query, vector)
+            if score > best_score:
+                best_score = score
+                best_id = skill_id
+        return best_id
+
+    def _ensure_vectors(self) -> None:
+        embedder = self._index.embedder
+        if embedder is None:
+            return
+
+        missing_ids: list[str] = []
+        missing_texts: list[str] = []
+        for skill_id, record in self._index.records.items():
+            if record.embedding is not None:
+                self._index.vectors[skill_id] = list(record.embedding)
                 continue
-            if _contains_term(norm, term):
-                seen.add(concept.skill_id)
-                linked.append(LinkedSkill(concept.skill_id, concept.label, term, 0.7))
-        return linked
+            missing_ids.append(skill_id)
+            missing_texts.append(skill_embedding_text(record))
 
-    def labels_for_ids(self, skill_ids: list[str]) -> list[str]:
-        by_id = {c.skill_id: c.label for c in self.concepts}
-        return [by_id.get(skill_id, skill_id) for skill_id in skill_ids]
-
-
-def _contains_term(haystack: str, term: str) -> bool:
-    if not term:
-        return False
-    if " " in term or any(ch in term for ch in ("+", "#")):
-        return term in haystack
-    return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", haystack) is not None
+        if not missing_texts:
+            return
+        for skill_id, vector in zip(missing_ids, embedder.embed(missing_texts), strict=True):
+            self._index.vectors[skill_id] = vector
 
 
-@lru_cache(maxsize=1)
-def get_skill_linker() -> SkillLinker:
-    return SkillLinker()
+def skill_embedding_text(record: SkillRecord) -> str:
+    """Text used to embed a taxonomy entry for span-similarity fallback."""
+    parts = [record.canonical_label, *record.alt_labels]
+    if record.description:
+        parts.append(record.description)
+    return " | ".join(p for p in parts if p)
+
+
+def link_spans(
+    spans: list[str],
+    *,
+    linker: SkillLinker | None = None,
+    records: Sequence[SkillRecord] | None = None,
+    embedder: Embedder | None = None,
+) -> list[str]:
+    """Module-level helper matching the issue's ``link_spans`` sketch.
+
+    Pass either an existing ``linker`` or ``records`` (optionally with an
+    ``embedder``; defaults to ``HashingEmbedder`` when records are given).
+    """
+    if linker is None:
+        if records is None:
+            raise ValueError("provide linker= or records=")
+        linker = InMemorySkillLinker(
+            records,
+            embedder=embedder if embedder is not None else HashingEmbedder(),
+        )
+    return linker.link_spans(spans)

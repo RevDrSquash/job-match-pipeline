@@ -8,12 +8,19 @@ import logging
 import httpx
 import pytest
 
-from app.config import Settings
-from app.llm import OpenAICompatibleClient, log_llm_usage
 from app.privacy import PrivacySafeError, input_kind, safe_exc
+from app.profile.llm import GeminiProfileLLM, log_llm_usage
 from app.profile.parse import LlmResumeParser, parse_llm_json
 
 SECRET = "SECRET_EMPLOYER_ZYX987"
+
+
+def _client() -> GeminiProfileLLM:
+    return GeminiProfileLLM(
+        api_key="test-key",
+        model="gemini-2.5-flash-lite",
+        api_base="https://example.invalid/v1beta",
+    )
 
 
 def test_safe_exc_drops_original_args() -> None:
@@ -39,13 +46,18 @@ def test_invalid_llm_json_error_omits_payload(caplog: pytest.LogCaptureFixture) 
 
 def test_llm_usage_log_has_no_prompt_text(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO)
-    log_llm_usage(purpose="profile_parse", model="gpt-4o-mini", input_tokens=12, output_tokens=4)
+    log_llm_usage(
+        purpose="profile_parse",
+        model="gemini-2.5-flash-lite",
+        input_tokens=12,
+        output_tokens=4,
+    )
     assert "profile_parse" in caplog.text
     assert "input_tokens=12" in caplog.text
     assert SECRET not in caplog.text
 
 
-def test_openai_client_http_error_is_privacy_safe(
+def test_gemini_client_http_error_is_privacy_safe(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
@@ -54,15 +66,14 @@ def test_openai_client_http_error_is_privacy_safe(
         raise httpx.ConnectError(f"upstream saw {SECRET}")
 
     monkeypatch.setattr(httpx.Client, "post", _boom)
-    client = OpenAICompatibleClient(Settings(llm_api_key="sk-test"))
-    parser = LlmResumeParser(client)
+    parser = LlmResumeParser(_client())
     with pytest.raises(PrivacySafeError) as exc_info:
         parser.parse(f"Worked at {SECRET}")
     assert SECRET not in str(exc_info.value)
     assert SECRET not in caplog.text
 
 
-def test_openai_client_error_body_not_logged(
+def test_gemini_client_error_body_not_logged(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
@@ -74,9 +85,8 @@ def test_openai_client_error_body_not_logged(
             return {"error": {"message": f"bad prompt mentioning {SECRET}"}}
 
     monkeypatch.setattr(httpx.Client, "post", lambda *a, **k: _Resp())
-    client = OpenAICompatibleClient(Settings(llm_api_key="sk-test"))
     with pytest.raises(PrivacySafeError) as exc_info:
-        client.complete_json(system="s", user=f"resume {SECRET}", purpose="profile_parse")
+        _client().complete_json(system="s", user=f"resume {SECRET}", purpose="profile_parse")
     assert SECRET not in str(exc_info.value)
     assert SECRET not in caplog.text
 

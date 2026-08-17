@@ -10,8 +10,8 @@ import json
 import re
 from typing import Protocol
 
-from app.llm import LlmClient
 from app.privacy import PrivacySafeError, safe_exc
+from app.profile.llm import LlmClient
 from app.profile.schema import LlmParsePayload, ParsedResume, WorkBullet, WorkHistoryEntry
 from app.skills.linker import SkillLinker
 
@@ -318,7 +318,7 @@ def _extract_structured(text: str, linker: SkillLinker) -> LlmParsePayload:
             continue
 
     if not skill_spans:
-        skill_spans = [hit.raw_span for hit in linker.scan_text(text)]
+        skill_spans = [hit.matched_text for hit in linker.scan_text(text)]
 
     seniority = _infer_seniority_from_titles([r.title for r in roles])
     title_families = infer_title_families([r.title for r in roles])

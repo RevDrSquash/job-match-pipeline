@@ -26,6 +26,24 @@ from app.db.base import Base
 EMBEDDING_DIM = 768
 
 
+class Skill(Base):
+    """Canonical skill taxonomy entry (ESCO for the PoC; O*NET-swappable).
+
+    Ids are opaque strings chosen by the loader (ESCO concept URIs today).
+    Embeddings support span-level similarity fallback in the linker.
+    """
+
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    canonical_label: Mapped[str] = mapped_column(Text, nullable=False)
+    alt_labels: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    embedding = mapped_column(Vector(EMBEDDING_DIM))
+
+
 class Company(Base):
     __tablename__ = "companies"
 
@@ -49,6 +67,7 @@ class Job(Base):
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
     url_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(Text)
     ats_provider: Mapped[str | None] = mapped_column(Text)
     company_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -61,6 +80,7 @@ class Job(Base):
     location: Mapped[str | None] = mapped_column(Text)
     work_arrangement: Mapped[str | None] = mapped_column(Text)
     department: Mapped[str | None] = mapped_column(Text)
+    employment_type: Mapped[str | None] = mapped_column(Text)
     comp_min: Mapped[int | None] = mapped_column(Integer)
     comp_max: Mapped[int | None] = mapped_column(Integer)
     raw_jd: Mapped[str | None] = mapped_column(Text)

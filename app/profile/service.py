@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,13 +13,15 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import PipelineEvent, User, UserFilter, UserProfile
-from app.embeddings import Embedder
+from app.extract.embed import DocumentEmbedder
 from app.privacy import PrivacySafeError, log_profile_access, safe_exc
 from app.profile.filters import derive_default_filters
 from app.profile.parse import ResumeParser
 from app.profile.schema import ParsedResume, WorkHistoryEntry
 from app.profile.synthesize import synthesize_profile_doc
 from app.skills.linker import SkillLinker
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -47,7 +50,7 @@ def ingest_profile(
     char_count: int,
     user_id: uuid.UUID | None = None,
     parser: ResumeParser,
-    embedder: Embedder,
+    embedder: DocumentEmbedder,
     linker: SkillLinker,
     settings: Settings | None = None,
 ) -> IngestResult:
@@ -59,11 +62,11 @@ def ingest_profile(
         has_user_id=user_id is not None,
     )
     parsed = parser.parse(resume_text)
-    skill_ids = [hit.skill_id for hit in linker.link_spans(parsed.skill_spans)]
+    skill_ids = linker.link_spans(parsed.skill_spans)
     if not skill_ids:
         skill_ids = [hit.skill_id for hit in linker.scan_text(resume_text)]
     synthesized = synthesize_profile_doc(parsed, skill_ids, linker)
-    embedding = embedder.embed(synthesized, purpose="profile_embed")
+    embedding = _embed_profile_doc(embedder, synthesized)
     stored_history = [entry.to_stored() for entry in parsed.work_history]
     filters = derive_default_filters(parsed)
 
@@ -129,7 +132,7 @@ def edit_profile(
     seniority_band: str | None = None,
     comp_floor: int | None = None,
     clear_comp_floor: bool = False,
-    embedder: Embedder | None = None,
+    embedder: DocumentEmbedder | None = None,
     linker: SkillLinker | None = None,
 ) -> ProfileBundle:
     """Apply a manual correction. Always bumps profile_version and rematch_needed."""
@@ -147,7 +150,7 @@ def edit_profile(
             ids = skill_ids if skill_ids is not None else (profile.skill_ids or [])
             synthesized_doc = synthesize_profile_doc(parsed, ids, linker)
         if synthesized_doc is not None and embedder is not None:
-            profile.embedding = embedder.embed(synthesized_doc, purpose="profile_embed")
+            profile.embedding = _embed_profile_doc(embedder, synthesized_doc)
 
     if skill_ids is not None:
         profile.skill_ids = skill_ids
@@ -181,6 +184,19 @@ def edit_profile(
         rematch_needed=True,
     )
     return _bundle(user_id, profile, filters)
+
+
+def _embed_profile_doc(embedder: DocumentEmbedder, synthesized_doc: str) -> list[float]:
+    """Embed with the shared job/profile document embedder. Logs counts only."""
+    result = embedder.embed_document(synthesized_doc)
+    logger.info(
+        "profile embed model=%s tokens=%s cost_usd=%.6f dim=%s",
+        result.model,
+        result.token_count,
+        result.cost_usd,
+        len(result.vector),
+    )
+    return result.vector
 
 
 def _prepare_edited_history(work_history: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -4,16 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.embeddings import hash_embed
-from app.llm import FakeLlmClient
+from app.extract.embed import HashingDocumentEmbedder
 from app.profile.filters import derive_default_filters
+from app.profile.llm import FakeLlmClient
 from app.profile.parse import FallbackResumeParser, LlmResumeParser, assign_span_ids
 from app.profile.schema import LlmParsePayload
 from app.profile.synthesize import synthesize_profile_doc
 from app.profile.text import extract_resume_text
-from app.skills.linker import SkillLinker
+from app.skills.linker import InMemorySkillLinker
+from app.skills.taxonomy import seed_records
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_resume.md"
+
+
+def _linker() -> InMemorySkillLinker:
+    return InMemorySkillLinker(seed_records())
 
 LLM_JSON = """
 {
@@ -92,7 +97,7 @@ def test_llm_parser_assigns_ids_and_provenance() -> None:
 
 def test_fallback_parser_on_fixture_resume() -> None:
     text = FIXTURE.read_text(encoding="utf-8")
-    parsed = FallbackResumeParser(SkillLinker()).parse(text)
+    parsed = FallbackResumeParser(_linker()).parse(text)
     employers = [role.employer for role in parsed.work_history]
     assert employers == ["Contoso", "Northwind Labs"]
     assert parsed.work_history[1].is_current is True
@@ -105,8 +110,8 @@ def test_fallback_parser_on_fixture_resume() -> None:
 
 def test_synthesized_doc_is_job_description_shaped() -> None:
     parsed = LlmResumeParser(FakeLlmClient(LLM_JSON)).parse("ignored")
-    linker = SkillLinker()
-    skill_ids = [hit.skill_id for hit in linker.link_spans(parsed.skill_spans)]
+    linker = _linker()
+    skill_ids = linker.link_spans(parsed.skill_spans)
     doc = synthesize_profile_doc(parsed, skill_ids, linker)
     assert doc.startswith("Title: Senior Software Engineer")
     assert "Seniority: senior" in doc
@@ -124,10 +129,11 @@ def test_default_filters_are_generous() -> None:
     assert filters["comp_floor"] is None
 
 
-def test_hash_embed_is_768_and_stable() -> None:
-    a = hash_embed("same document")
-    b = hash_embed("same document")
-    c = hash_embed("different document")
+def test_hashing_document_embedder_is_768_and_stable() -> None:
+    embedder = HashingDocumentEmbedder()
+    a = embedder.embed_document("same document").vector
+    b = embedder.embed_document("same document").vector
+    c = embedder.embed_document("different document").vector
     assert len(a) == 768
     assert a == b
     assert a != c

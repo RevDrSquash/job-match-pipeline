@@ -22,21 +22,26 @@ class Settings(BaseSettings):
     cloud_tasks_handler_base_url: str = ""
     cloud_tasks_service_account_email: str = ""
 
-    # LLM (profile parse and later generation). Model names live here, not at call sites.
-    # llm_impl: openai (OpenAI-compatible HTTP) | fallback (offline structured parser)
-    llm_impl: str = "openai"
+    # extract-job: cheapest adequate model; postings are not personal information
+    # so there is no residency/ZDR constraint (docs/PRIVACY_AND_COMPLIANCE.md).
     llm_api_key: str = ""
-    llm_base_url: str = "https://api.openai.com/v1"
-    llm_model: str = "gpt-4o-mini"
+    llm_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+    extraction_model: str = "gemini-2.5-flash-lite"
+    extraction_input_usd_per_mtok: float = 0.10
+    extraction_output_usd_per_mtok: float = 0.40
+    # 768-d document embeddings — same model for jobs and profiles.
+    # hashing = offline PoC; gemini = text-embedding-004 (see OPEN_ISSUES §6).
+    embedding_provider: str = "hashing"
+    embedding_model: str = "text-embedding-004"
+    embedding_usd_per_mtok: float = 0.025
 
-    # Embeddings — 768-dim; same model for job and profile documents.
-    # Recorded in docs/OPEN_ISSUES.md §7: text-embedding-3-small @ dimensions=768.
-    # embedding_impl: openai | hash (deterministic local stand-in for tests)
-    embedding_impl: str = "openai"
-    embedding_api_key: str = ""
-    embedding_base_url: str = ""
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dim: int = 768
+    # Profile parse (CLI). Resume text IS personal information — ZDR vendor
+    # terms are a production blocker (docs/PRIVACY_AND_COMPLIANCE.md).
+    # profile_parser: gemini | fallback (offline structured parser)
+    profile_parser: str = "gemini"
+    profile_parse_model: str = "gemini-2.5-flash-lite"
+    profile_parse_input_usd_per_mtok: float = 0.10
+    profile_parse_output_usd_per_mtok: float = 0.40
 
     # New-user defaults (see docs/COST_MODEL.md — free tier in the tens of resumes/mo)
     default_user_tier: str = "free"

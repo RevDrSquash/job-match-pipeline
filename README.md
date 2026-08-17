@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept scaffold. FastAPI handler stubs, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), and Alembic migrations for the full data model are in place. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch profile` CLI for resume ingestion. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -33,13 +33,50 @@ Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` agains
 
 Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`.
 
+### Seed corpus (~500 postings)
+
+Hand-picked boards live in [`config/seed_companies.json`](config/seed_companies.json). After Postgres is up and migrated:
+
+```bash
+pip install -e '.[dev]'
+alembic upgrade head
+python -m app.seed --target 500
+# or: job-match-seed --target 500
+```
+
+The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. No LLM calls on this path.
+
+Extract a seeded job (lazy; cached on `extracted_at`):
+
+```bash
+# Live extraction needs LLM_API_KEY or GEMINI_API_KEY.
+# EMBEDDING_PROVIDER=hashing (default) writes 768-d hashing vectors offline;
+# set EMBEDDING_PROVIDER=gemini to use text-embedding-004.
+curl -s -X POST http://localhost:8080/handlers/extract-job \
+  -H 'content-type: application/json' \
+  -d '{"job_id":"<job uuid>"}'
+```
+
+Re-POSTing the same `job_id` is a no-op. Permanent failures (unparseable JD) return 2xx; retryable LLM errors return 5xx. Token counts and estimated cost are logged on every extraction — never the JD text.
+
+Smoke a single board through the HTTP handlers:
+
+```bash
+curl -s -X POST http://localhost:8080/handlers/fetch-link-list \
+  -H 'content-type: application/json' \
+  -d '{"ats_provider":"greenhouse","board_token":"airtable","company_name":"Airtable"}'
+```
+
+`ENABLE_DEBUG_CAPTURE=true` turns on an in-memory receipt log and `GET /_debug/received` for local tests. Leave it false (the default) outside PoC/test so it cannot ship to Cloud Run.
+
 ## Profile CLI (PoC)
 
 No UI yet — ingest the test resume from the command line. This writes `users`, `user_profiles` (structured `work_history` with `source: parsed` and stable span IDs, linked `skill_ids`, synthesized JD-shaped doc, 768-dim embedding), and default `user_filters`.
 
 ```bash
-# Offline structured parser (no LLM key). Real ingest uses LLM_IMPL=openai + LLM_API_KEY.
-export EMBEDDING_IMPL=hash   # or leave unset; hash is used automatically without a key
+# Offline: --fallback-parser needs no API key, and EMBEDDING_PROVIDER=hashing
+# (the default) writes 768-d hashing vectors. Real ingest uses
+# PROFILE_PARSER=gemini + LLM_API_KEY (same key as extract-job).
 
 jobmatch profile ingest path/to/resume.pdf --fallback-parser --json
 jobmatch profile show --user-id <uuid>
@@ -48,17 +85,9 @@ jobmatch profile edit <uuid> --comp-floor 140000
 
 `python -m app` is the same entry point. `profile edit` bumps `profile_version` and sets `rematch_needed`; it does not trigger a rematch (the scheduled `match-batch` dirty path does).
 
+Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below); when the table is empty the CLI falls back to a small built-in seed taxonomy. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
+
 Resume text is never written to application logs or exception traces. `profile show` prints the structured result to stdout for manual review.
-
-Smoke the stub chain (opt-in: each handler enqueues the next only when `follow_chain` is true; default is off):
-
-```bash
-curl -s -X POST http://localhost:8080/handlers/fetch-link-list \
-  -H 'content-type: application/json' \
-  -d '{"run_id":"local-1","follow_chain":true}'
-```
-
-`ENABLE_DEBUG_CAPTURE=true` turns on an in-memory receipt log and `GET /_debug/received` for local tests. Leave it false (the default) outside PoC/test so it cannot ship to Cloud Run.
 
 ## Local development (without Docker for the app)
 
@@ -92,6 +121,34 @@ alembic upgrade head
 pytest
 ruff check .
 ```
+
+## Skill taxonomy (ESCO)
+
+Canonical skill linking is shared by `extract-job` and profile parsing
+(`app/skills/`). The PoC taxonomy is **ESCO** (~14k skills); the linker is
+taxonomy-agnostic so O*NET can replace it later.
+
+**License:** ESCO data is published by the European Commission under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (see the
+[ESCO copyright notice](https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences)).
+Attribute “ESCO © European Union” when redistributing derived data. The skills
+pillar also incorporates O*NET (USDOL/ETA, CC BY 4.0) and Canadian glossary
+elements — credit those sources as required by the notice.
+
+Load into Postgres (idempotent upsert on skill id):
+
+```bash
+# Preferred: official CSV from https://esco.ec.europa.eu/en/use-esco/download
+# (classification / en / csv → skills_en.csv)
+python -m scripts.load_esco --csv /path/to/skills_en.csv
+
+# Or fetch via the public ESCO API and cache data/esco/skills_en.csv
+python -m scripts.load_esco
+```
+
+Re-running the loader updates existing rows; it does not duplicate. Pass
+`--no-embeddings` to skip the PoC hashing embeddings (exact/alias linking
+still works). See `scripts/load_esco.py` for flags.
 
 ## Conventions (baked into handlers)
 

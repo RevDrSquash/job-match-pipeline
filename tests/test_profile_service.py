@@ -13,13 +13,18 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db.models import PipelineEvent, User, UserFilter, UserProfile
 from app.db.session import get_engine, normalize_database_url
-from app.embeddings import HashEmbedder
-from app.llm import FakeLlmClient
+from app.extract.embed import HashingDocumentEmbedder
+from app.profile.llm import FakeLlmClient
 from app.profile.parse import FallbackResumeParser, LlmResumeParser
 from app.profile.service import edit_profile, ingest_profile, show_profile
-from app.skills.linker import SkillLinker
+from app.skills.linker import InMemorySkillLinker
+from app.skills.taxonomy import seed_records
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_resume.md"
+
+
+def _linker() -> InMemorySkillLinker:
+    return InMemorySkillLinker(seed_records())
 
 LLM_JSON = """
 {
@@ -95,7 +100,7 @@ def db_session(apply_migrations: None) -> Session:
 
 
 def _settings() -> Settings:
-    return Settings(llm_impl="fallback", embedding_impl="hash")
+    return Settings(profile_parser="fallback", embedding_provider="hashing")
 
 
 @requires_db
@@ -118,9 +123,9 @@ def test_ingest_logs_omit_resume_text(
         resume,
         input_kind="markdown",
         char_count=len(resume),
-        parser=FallbackResumeParser(SkillLinker()),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        parser=FallbackResumeParser(_linker()),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     assert [action for action, _fields in calls] == ["ingest_start", "ingest_ok"]
@@ -138,8 +143,8 @@ def test_ingest_writes_profile_skills_embedding_filters(db_session: Session) -> 
         input_kind="markdown",
         char_count=len(text),
         parser=LlmResumeParser(FakeLlmClient(LLM_JSON)),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     bundle = result.bundle
@@ -172,9 +177,9 @@ def test_reingest_bumps_version_and_rematch(db_session: Session) -> None:
         text,
         input_kind="markdown",
         char_count=len(text),
-        parser=FallbackResumeParser(SkillLinker()),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        parser=FallbackResumeParser(_linker()),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     second = ingest_profile(
@@ -183,9 +188,9 @@ def test_reingest_bumps_version_and_rematch(db_session: Session) -> None:
         input_kind="markdown",
         char_count=len(text),
         user_id=first.bundle.user_id,
-        parser=FallbackResumeParser(SkillLinker()),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        parser=FallbackResumeParser(_linker()),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     assert second.created_user is False
@@ -204,9 +209,9 @@ def test_edit_bumps_version_and_sets_rematch_needed(db_session: Session) -> None
         text,
         input_kind="markdown",
         char_count=len(text),
-        parser=FallbackResumeParser(SkillLinker()),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        parser=FallbackResumeParser(_linker()),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     edited = edit_profile(
@@ -233,9 +238,9 @@ def test_edit_work_history_marks_user_asserted(db_session: Session) -> None:
         text,
         input_kind="markdown",
         char_count=len(text),
-        parser=FallbackResumeParser(SkillLinker()),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        parser=FallbackResumeParser(_linker()),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     replacement = [
@@ -251,8 +256,8 @@ def test_edit_work_history_marks_user_asserted(db_session: Session) -> None:
         db_session,
         ingested.bundle.user_id,
         work_history=replacement,
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
     )
     assert edited.work_history[0]["source"] == "user_asserted"
     assert edited.work_history[0]["bullets"][0]["span_id"] == "wh:0:b:0"
@@ -280,9 +285,9 @@ def test_ingest_unknown_user_is_safe_error(db_session: Session) -> None:
             input_kind="text",
             char_count=7,
             user_id=uuid.uuid4(),
-            parser=FallbackResumeParser(SkillLinker()),
-            embedder=HashEmbedder(),
-            linker=SkillLinker(),
+            parser=FallbackResumeParser(_linker()),
+            embedder=HashingDocumentEmbedder(),
+            linker=_linker(),
             settings=_settings(),
         )
 
@@ -295,9 +300,9 @@ def test_user_and_filter_rows_exist(db_session: Session) -> None:
         text,
         input_kind="markdown",
         char_count=len(text),
-        parser=FallbackResumeParser(SkillLinker()),
-        embedder=HashEmbedder(),
-        linker=SkillLinker(),
+        parser=FallbackResumeParser(_linker()),
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
         settings=_settings(),
     )
     assert db_session.get(User, result.bundle.user_id) is not None

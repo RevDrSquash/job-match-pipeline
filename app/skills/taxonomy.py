@@ -1,23 +1,17 @@
-"""PoC ESCO seed: common software-engineering skills plus aliases.
+"""PoC seed: common software-engineering skills plus aliases, as SkillRecords.
 
-Full ESCO (~13.9k) is the target taxonomy (docs/OPEN_ISSUES.md §6). The linker
-interface is stable; swapping this seed for a downloaded ESCO CSV is a data
-change, not a call-site change.
+Full ESCO (~13.9k) is the target taxonomy — load it into the ``skills`` table
+with ``scripts/load_esco.py``. This seed is pure data (no taxonomy vendor
+types); the profile CLI falls back to it only when the table is empty, and
+tests use it for offline linking. Swapping it out is a data change, not a
+call-site change.
 
 IDs are `esco:<slug>` placeholders until the official concept URIs are loaded.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class SkillConcept:
-    skill_id: str
-    label: str
-    aliases: tuple[str, ...] = ()
-
+from app.skills.linker import SkillRecord
 
 # (id slug, preferred label, aliases)
 _SEED: tuple[tuple[str, str, tuple[str, ...]], ...] = (
@@ -130,8 +124,8 @@ _SEED: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 )
 
 
-def seed_concepts() -> tuple[SkillConcept, ...]:
+def seed_records() -> tuple[SkillRecord, ...]:
     return tuple(
-        SkillConcept(skill_id=f"esco:{slug}", label=label, aliases=aliases)
+        SkillRecord(id=f"esco:{slug}", canonical_label=label, alt_labels=aliases)
         for slug, label, aliases in _SEED
     )

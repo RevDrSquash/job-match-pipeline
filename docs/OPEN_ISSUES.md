@@ -41,18 +41,33 @@ DEF-14 lists ATS-endpoint ToS review as a blocker "before building." Strictly, e
 
 Not inconsistencies — just decisions the docs deliberately leave open that the scaffold has to pick something for:
 
-* **Embedding model** — **Resolved for the PoC in §7.** Docs fix the dimension (768) but not the model. Job and profile documents use the same model.
-* **Skill taxonomy** — **PoC pick: ESCO.** The linker (`app/skills`) is the only place that matches skill-name strings. The PoC ships a seed of common software-engineering concepts with `esco:<slug>` IDs. Swapping the seed for a downloaded ESCO CSV (official concept URIs) is a data change, not a call-site change.
+* **Embedding model** — docs fix the dimension (768) but not the model.
+  **Skill-span linking:** deterministic feature-hashing embedder in
+  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d).
+  **Job/profile documents (DEF-20):** Google `text-embedding-004` (native
+  768-d) when `EMBEDDING_PROVIDER=gemini`. Offline PoC default is
+  `EMBEDDING_PROVIDER=hashing` (same `HashingEmbedder`) so extract-job can
+  write vectors without an API key. Job and profile documents must use the
+  same provider — the two spaces are not comparable. Switching providers
+  later would require re-embedding; `extracted_at` is a permanent cache.
+  Profile ingest shares the extract-job `DocumentEmbedder` (see §7).
+  **Extraction LLM:** `gemini-2.5-flash-lite` (configurable via
+  `EXTRACTION_MODEL`). Cheapest adequate model; no residency/ZDR constraint.
+* **Skill taxonomy** — **ESCO** chosen for the PoC (CSV distribution + public
+  API; see `scripts/load_esco.py` and README). Linker stays behind
+  `app/skills.SkillLinker` with no ESCO types outside the loader. O*NET remains
+  the named alternative. The profile CLI and tests fall back to a small
+  in-repo seed (`app/skills/taxonomy.py`, `esco:<slug>` placeholder IDs, pure
+  data) when the `skills` table is empty; swapping the seed for the loaded
+  ESCO CSV is a data change, not a call-site change.
 * **Migration tooling** — docs say "schema migration" without naming a tool; Alembic is the default for a FastAPI/Postgres stack.
 
-## 7. Embedding model (PoC)
+## 7. Profile ingest LLM/embedding choices (PoC)
 
-**Choice:** OpenAI `text-embedding-3-small` with `dimensions=768`.
+The profile-ingest branch originally picked OpenAI `text-embedding-3-small` (`dimensions=768`) here. That pick was **superseded at merge time** by the DEF-20 decision recorded in §6: `text-embedding-004` / `EMBEDDING_PROVIDER=hashing`, one provider shared by job and profile documents (the two vector spaces are not comparable across providers).
 
-Same model for job documents (`extract-job`) and profile documents (`profile ingest`). Configured via `EMBEDDING_MODEL` / `EMBEDDING_DIM` in `app/config.py` — not hardcoded at call sites.
+Where profile ingest landed after the merge:
 
-Why this one: native 768-dim output (the schema constraint), a single HTTP API, no local GPU, and an OpenAI-compatible wire format so a Vertex/Gemini endpoint can be swapped in later without changing callers.
-
-When `EMBEDDING_API_KEY` / `LLM_API_KEY` is unset, the client falls back to a deterministic hash embedder so the CLI and tests can write a real `vector(768)` without calling a vendor. That stand-in is **not** for matching quality.
-
-Revisit Vertex `text-embedding-004` (`outputDimensionality=768`) when GCP is wired up — same dimension, in-family with the rest of the stack.
+* **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality.
+* **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-2.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
+* **Skill linking:** the shared `app/skills` linker over the `skills` table, with the in-repo seed fallback described in §6.

@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 jobmatch = "app.cli:main"
+job-match-seed = "app.seed:main"
 
 [project.optional-dependencies]
 dev = [

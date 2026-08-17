@@ -6,58 +6,13 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
-from app.db.models import Company, Job, PipelineEvent, User, UserFilter, UserProfile
-from app.db.session import get_engine, normalize_database_url
-
-
-def _database_available() -> bool:
-    # Probe with a bare engine: get_engine() registers the pgvector type adapter
-    # on connect, which fails on a reachable-but-unmigrated database and would
-    # make these tests skip with a misleading reason.
-    engine = create_engine(normalize_database_url(get_settings().database_url))
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except OperationalError:
-        return False
-    finally:
-        engine.dispose()
-
-
-requires_db = pytest.mark.skipif(
-    not _database_available(),
-    reason="Postgres not reachable (start with: docker compose up db -d)",
-)
-
-
-@pytest.fixture(scope="module")
-def apply_migrations() -> None:
-    from alembic.config import Config
-
-    from alembic import command
-
-    cfg = Config("alembic.ini")
-    command.upgrade(cfg, "head")
-
-
-@pytest.fixture
-def db_session(apply_migrations: None) -> Session:
-    engine = get_engine()
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = Session(bind=connection)
-    try:
-        yield session
-    finally:
-        session.close()
-        transaction.rollback()
-        connection.close()
+from app.db.models import Company, Job, PipelineEvent, Skill, User, UserFilter, UserProfile
+from app.db.session import normalize_database_url
+from tests.conftest import requires_db
 
 
 def _unit_vector(dim: int, index: int = 0) -> list[float]:
@@ -204,6 +159,25 @@ def test_url_hash_upsert(db_session: Session) -> None:
 
     assert updated.id == job_id
     assert updated.title == "Updated title"
+
+
+@requires_db
+def test_skills_table_round_trip(db_session: Session) -> None:
+    skill = Skill(
+        id="http://data.europa.eu/esco/skill/schema-test-only",
+        canonical_label="Amazon Web Services",
+        alt_labels=["AWS"],
+        description="Cloud platform",
+        embedding=_unit_vector(768, 3),
+    )
+    db_session.add(skill)
+    db_session.flush()
+
+    loaded = db_session.get(Skill, skill.id)
+    assert loaded is not None
+    assert loaded.canonical_label == "Amazon Web Services"
+    assert loaded.alt_labels == ["AWS"]
+    assert list(loaded.embedding)[3] == pytest.approx(1.0)
 
 
 @requires_db

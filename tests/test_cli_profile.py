@@ -67,8 +67,8 @@ def test_cli_ingest_show_edit_roundtrip(
 
     command.upgrade(Config("alembic.ini"), "head")
 
-    monkeypatch.setenv("LLM_IMPL", "fallback")
-    monkeypatch.setenv("EMBEDDING_IMPL", "hash")
+    monkeypatch.setenv("PROFILE_PARSER", "fallback")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "hashing")
     get_settings.cache_clear()
 
     resume = tmp_path / "resume.md"

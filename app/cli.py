@@ -110,8 +110,8 @@ def _cmd_ingest(args: argparse.Namespace, settings: Settings) -> int:
         print("error: resume file not found", file=sys.stderr)
         return 1
     text, kind = read_resume_file(path)
-    deps = build_profile_deps(settings, allow_fallback=args.fallback_parser)
     with db_session() as session:
+        deps = build_profile_deps(settings, session, allow_fallback=args.fallback_parser)
         result = ingest_profile(
             session,
             text,
@@ -153,8 +153,8 @@ def _cmd_edit(args: argparse.Namespace, settings: Settings) -> int:
             raise PrivacySafeError("work-history-json must be a JSON array")
     skill_ids = _csv(args.skill_ids)
     arrangements = _csv(args.work_arrangement)
-    deps = build_profile_deps(settings, allow_fallback=True)
     with db_session() as session:
+        deps = build_profile_deps(settings, session, allow_fallback=True)
         current = show_profile(session, args.user_id)
         locations = current.filters.get("locations")
         if args.add_location:

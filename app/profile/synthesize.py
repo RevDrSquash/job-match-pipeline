@@ -14,7 +14,7 @@ def synthesize_profile_doc(
     skill_ids: list[str],
     linker: SkillLinker,
 ) -> str:
-    skill_labels = linker.labels_for_ids(skill_ids)
+    skill_labels = linker.labels_for(skill_ids)
     latest = _most_recent_role(parsed.work_history)
     title = latest.title if latest else "Candidate"
     lines = [
