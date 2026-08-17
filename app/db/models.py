@@ -26,6 +26,24 @@ from app.db.base import Base
 EMBEDDING_DIM = 768
 
 
+class Skill(Base):
+    """Canonical skill taxonomy entry (ESCO for the PoC; O*NET-swappable).
+
+    Ids are opaque strings chosen by the loader (ESCO concept URIs today).
+    Embeddings support span-level similarity fallback in the linker.
+    """
+
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    canonical_label: Mapped[str] = mapped_column(Text, nullable=False)
+    alt_labels: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    embedding = mapped_column(Vector(EMBEDDING_DIM))
+
+
 class Company(Base):
     __tablename__ = "companies"
 

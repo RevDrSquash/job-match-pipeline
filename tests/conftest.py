@@ -26,6 +26,9 @@ def _free_port() -> int:
 
 
 def _database_available() -> bool:
+    # Probe with a bare engine: get_engine() registers the pgvector type adapter
+    # on connect, which fails on a reachable-but-unmigrated database and would
+    # make these tests skip with a misleading reason.
     engine = create_engine(normalize_database_url(get_settings().database_url))
     try:
         with engine.connect() as conn:
