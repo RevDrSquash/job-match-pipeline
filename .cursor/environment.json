@@ -1,0 +1,13 @@
+{
+  "name": "Job Match Pipeline",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start-postgres.sh",
+  "terminals": [
+    {
+      "name": "api",
+      "command": "bash .cursor/start-postgres.sh && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"
+    }
+  ],
+  "ports": [8080]
+}
