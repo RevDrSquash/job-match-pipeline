@@ -179,4 +179,4 @@ Related assumption to validate: the belief that ATS platforms auto-reject on key
 * **UI — entirely unplanned as of this document.** No decisions made on web app, extension, email digest, or delivery format.
 * Fine-tuned matching encoder (needs accumulated labels)
 * Automated application submission (see above)
-* Configurable hard-requirement gating policy — currently we do not drop on a single missing hard requirement; the threshold should become user- or tier-configurable once we have data on false-negative rates
+* Configurable hard-requirement gating policy — currently we do not drop on a single missing hard requirement (`HARD_REQ_MISSING_DROP_THRESHOLD` unset). The env knob exists; it should become user- or tier-configurable once we have data on false-negative rates

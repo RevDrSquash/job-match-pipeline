@@ -67,10 +67,11 @@ Volume and data sensitivity sit on opposite sides of this pipeline, which makes 
 | -- | -- | -- | -- |
 | `extract-job` | **No** | high | Cheapest adequate model; no residency constraint |
 | Profile parsing | Yes | 1× per user | Best available, ZDR terms |
+| `screen-job` | **Yes** (condensed profile) | ~100/user/day | Cheap model (`GATE_MODEL`); ZDR terms required. Condensed JD is not PI. Never log prompt/completion text. |
 | `generate-resume` | Yes | tens/user/mo | Best available, ZDR terms |
 | `verify-resume` | Yes | tens/user/mo | Best available, different family from generator |
 
-Because the personal-information stages are low-volume, paying a premium there barely moves the cost model. The high-volume stage touches no personal information at all.
+Most personal-information stages are low-volume, so paying a premium there barely moves the cost model. **`screen-job` is the exception:** it is high-volume *and* sends a condensed profile. That is why the gate stays on a cheap model, why ZDR/no-training terms apply here too, and why real token/cost logging matters (`OPEN_ISSUES.md` §1). The high-volume *extract* stage still touches no personal information.
 
 ### Optimization to investigate: frontier models via Vertex
 
