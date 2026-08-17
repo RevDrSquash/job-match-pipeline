@@ -84,7 +84,8 @@ def match_requirement_lists(
         best_score = threshold
         for index, item in enumerate(remaining_gold):
             if texts_match(pred, item, threshold=threshold):
-                score = token_jaccard(pred, item)
+                # Containment is enough to pair; Jaccard only breaks ties.
+                score = max(token_jaccard(pred, item), threshold)
                 if score >= best_score:
                     best_score = score
                     best_i = index
