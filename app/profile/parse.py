@@ -254,8 +254,6 @@ def _extract_structured(text: str, linker: SkillLinker) -> LlmParsePayload:
     arrangements: list[str] = []
     summary: str | None = None
 
-    header_bits: list[str] = []
-
     for raw in lines:
         line = raw.strip()
         if not line:
@@ -271,7 +269,6 @@ def _extract_structured(text: str, linker: SkillLinker) -> LlmParsePayload:
             if _ROLE_HEADER.match(_strip_heading(line)):
                 section = "experience"
             else:
-                header_bits.append(line)
                 _collect_meta(line, locations, arrangements)
                 continue
 
@@ -322,11 +319,7 @@ def _extract_structured(text: str, linker: SkillLinker) -> LlmParsePayload:
 
     if not skill_spans:
         skill_spans = [hit.raw_span for hit in linker.scan_text(text)]
-    else:
-        # Keep author-listed spans; linker happens later.
-        pass
 
-    _collect_meta(" ".join(header_bits), locations, arrangements)
     seniority = _infer_seniority_from_titles([r.title for r in roles])
     title_families = infer_title_families([r.title for r in roles])
 
@@ -351,7 +344,13 @@ def _split_skill_list(line: str) -> list[str]:
 
 def _collect_meta(text: str, locations: list[str], arrangements: list[str]) -> None:
     lower = text.lower()
-    for token, label in (("remote", "remote"), ("hybrid", "hybrid"), ("on-site", "onsite"), ("onsite", "onsite")):
+    tokens = (
+        ("remote", "remote"),
+        ("hybrid", "hybrid"),
+        ("on-site", "onsite"),
+        ("onsite", "onsite"),
+    )
+    for token, label in tokens:
         if token in lower and label not in arrangements:
             arrangements.append(label)
     loc_match = re.search(r"\b([A-Z][A-Za-z .]+,\s*[A-Z]{2,})\b", text)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import uuid
 from pathlib import Path
 
@@ -101,11 +100,19 @@ def _settings() -> Settings:
 
 @requires_db
 def test_ingest_logs_omit_resume_text(
-    db_session: Session, caplog: pytest.LogCaptureFixture
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     secret = "SECRET_EMPLOYER_ZYX987"
-    resume = f"# Pat\n\n## Experience\n\n### Engineer — {secret}\n2020-01 – Present\n- Did Python work\n"
-    caplog.set_level(logging.INFO)
+    resume = (
+        f"# Pat\n\n## Experience\n\n### Engineer — {secret}\n"
+        "2020-01 – Present\n- Did Python work\n"
+    )
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(action: str, **fields: object) -> None:
+        calls.append((action, fields))
+
+    monkeypatch.setattr("app.profile.service.log_profile_access", _capture)
     ingest_profile(
         db_session,
         resume,
@@ -116,8 +123,10 @@ def test_ingest_logs_omit_resume_text(
         linker=SkillLinker(),
         settings=_settings(),
     )
-    assert secret not in caplog.text
-    assert "user_profiles access action=ingest_ok" in caplog.text
+    assert [action for action, _fields in calls] == ["ingest_start", "ingest_ok"]
+    serialized = repr(calls)
+    assert secret not in serialized
+    assert "Python" not in serialized
 
 
 @requires_db

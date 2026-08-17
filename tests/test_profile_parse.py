@@ -100,6 +100,7 @@ def test_fallback_parser_on_fixture_resume() -> None:
     assert "Python" in parsed.skill_spans
     assert "remote" in parsed.work_arrangement
     assert parsed.seniority == "senior"
+    assert parsed.locations == ["Vancouver, BC", "Toronto, ON"]
 
 
 def test_synthesized_doc_is_job_description_shaped() -> None:

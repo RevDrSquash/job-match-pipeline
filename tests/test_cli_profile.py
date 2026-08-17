@@ -43,7 +43,9 @@ def test_parser_accepts_profile_commands() -> None:
     assert ingest.as_json is True
     show = parser.parse_args(["profile", "show"])
     assert show.profile_command == "show"
-    edit = parser.parse_args(["profile", "edit", "00000000-0000-0000-0000-000000000001", "--comp-floor", "120000"])
+    edit = parser.parse_args(
+        ["profile", "edit", "00000000-0000-0000-0000-000000000001", "--comp-floor", "120000"]
+    )
     assert edit.comp_floor == 120000
 
 
@@ -99,6 +101,5 @@ def test_cli_ingest_show_edit_roundtrip(
             uid = uuid.UUID(user_id)
             with db_session() as session:
                 session.execute(delete(PipelineEvent).where(PipelineEvent.user_id == uid))
-                user = session.get(User, uid)
-                if user is not None:
-                    session.delete(user)
+                # SQL delete so ON DELETE CASCADE clears profile + filters.
+                session.execute(delete(User).where(User.id == uid))

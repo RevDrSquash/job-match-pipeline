@@ -13,7 +13,6 @@ from app.llm import OpenAICompatibleClient, log_llm_usage
 from app.privacy import PrivacySafeError, input_kind, safe_exc
 from app.profile.parse import LlmResumeParser, parse_llm_json
 
-
 SECRET = "SECRET_EMPLOYER_ZYX987"
 
 

@@ -62,7 +62,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use the offline structured parser instead of the LLM",
     )
-    ingest.add_argument("--json", action="store_true", dest="as_json", help="Print the result as JSON")
+    ingest.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Print the result as JSON",
+    )
 
     show = profile_sub.add_parser("show", help="Dump the structured profile for review")
     show.add_argument("--user-id", type=uuid.UUID, default=None)
