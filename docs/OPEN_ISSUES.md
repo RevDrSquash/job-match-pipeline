@@ -44,15 +44,25 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
 * **Embedding model** — docs fix the dimension (768) but not the model.
   **Skill-span linking:** deterministic feature-hashing embedder in
   `app/skills/embeddings.py` (`HashingEmbedder`, 768-d).
-  **Job/profile documents (DEF-20):** Google `text-embedding-004` (native
-  768-d) when `EMBEDDING_PROVIDER=gemini`. Offline PoC default is
+  **Job/profile documents (DEF-20, updated 2026-08):** Google
+  `gemini-embedding-001` Matryoshka-truncated to 768
+  (`outputDimensionality=768`, L2-normalized client-side because reduced-dim
+  vectors come back unnormalized) when `EMBEDDING_PROVIDER=gemini`. This is
+  the setting for retrieval-quality evals. The original DEF-20 pick,
+  `text-embedding-004`, was **shut down by Google on 2026-01-14**.
+  `gemini-embedding-001` is also available on Vertex AI, which keeps the
+  later Canada-residency move (Vertex `northamerica-northeast1`) an
+  auth/endpoint change rather than a re-embed. Offline default is
   `EMBEDDING_PROVIDER=hashing` (same `HashingEmbedder`) so extract-job can
-  write vectors without an API key. Job and profile documents must use the
-  same provider — the two spaces are not comparable. Switching providers
-  later would require re-embedding; `extracted_at` is a permanent cache.
+  write vectors without an API key — not for matching quality. Job and
+  profile documents must use the same provider — the two spaces are not
+  comparable. Switching providers later would require re-embedding;
+  `extracted_at` is a permanent cache.
   Profile ingest shares the extract-job `DocumentEmbedder` (see §7).
-  **Extraction LLM:** `gemini-2.5-flash-lite` (configurable via
-  `EXTRACTION_MODEL`). Cheapest adequate model; no residency/ZDR constraint.
+  **Extraction LLM:** `gemini-3.5-flash-lite` (configurable via
+  `EXTRACTION_MODEL`). Current GA budget tier; the earlier pick
+  `gemini-2.5-flash-lite` retires with the 2.5 series (~Oct 2026). No
+  residency/ZDR constraint for postings.
 * **Skill taxonomy** — **ESCO** chosen for the PoC (CSV distribution + public
   API; see `scripts/load_esco.py` and README). Linker stays behind
   `app/skills.SkillLinker` with no ESCO types outside the loader. O*NET remains
@@ -64,10 +74,10 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
 
 ## 7. Profile ingest LLM/embedding choices (PoC)
 
-The profile-ingest branch originally picked OpenAI `text-embedding-3-small` (`dimensions=768`) here. That pick was **superseded at merge time** by the DEF-20 decision recorded in §6: `text-embedding-004` / `EMBEDDING_PROVIDER=hashing`, one provider shared by job and profile documents (the two vector spaces are not comparable across providers).
+The profile-ingest branch originally picked OpenAI `text-embedding-3-small` (`dimensions=768`) here. That pick was **superseded at merge time** by the DEF-20 decision recorded in §6 (now `gemini-embedding-001` @ 768 / `EMBEDDING_PROVIDER=hashing` offline), one provider shared by job and profile documents (the two vector spaces are not comparable across providers).
 
 Where profile ingest landed after the merge:
 
-* **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality.
-* **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-2.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
+* **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality. `gemini-embedding-001` caps input at 2,048 tokens and truncates silently, so the synthesized profile doc is trimmed to that budget (oldest roles' bullets dropped first; job docs already cap at 500) and the embedder logs an error if an over-cap doc ever slips through.
+* **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-3.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
 * **Skill linking:** the shared `app/skills` linker over the `skills` table, with the in-repo seed fallback described in §6.

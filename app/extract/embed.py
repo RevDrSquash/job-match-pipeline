@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -16,7 +17,15 @@ from app.skills.embeddings import HashingEmbedder
 logger = logging.getLogger(__name__)
 
 # Pinned in docs/OPEN_ISSUES.md §6. Same model must be used for profile docs.
-DEFAULT_DOCUMENT_EMBEDDING_MODEL = "text-embedding-004"
+# (text-embedding-004 was shut down 2026-01-14; gemini-embedding-001 is the
+# GA successor, Matryoshka-truncated to 768 via outputDimensionality.)
+DEFAULT_DOCUMENT_EMBEDDING_MODEL = "gemini-embedding-001"
+
+# gemini-embedding-001 input cap. The API truncates over-limit input silently,
+# so callers keep docs under this (job synth docs cap at 500; profile docs are
+# trimmed in app/profile/synthesize.py) and embed_document logs an error as a
+# safety net if an over-cap doc slips through.
+GEMINI_EMBED_MAX_TOKENS = 2048
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +59,7 @@ class HashingDocumentEmbedder:
     """Offline 768-d document embedder (HashingEmbedder).
 
     Used in tests and when no LLM API key is configured. Not comparable to
-    ``text-embedding-004`` — job and profile docs must share one provider.
+    ``gemini-embedding-001`` — job and profile docs must share one provider.
     """
 
     def __init__(self) -> None:
@@ -69,7 +78,13 @@ class HashingDocumentEmbedder:
 
 
 class GeminiDocumentEmbedder:
-    """Google ``text-embedding-004`` (native 768-d) via the Gemini API."""
+    """Google ``gemini-embedding-001`` truncated to 768-d via the Gemini API.
+
+    Unlike the retired ``text-embedding-004``, reduced-dimension vectors are
+    returned **unnormalized**, so we L2-normalize before storing — cosine
+    similarity in pgvector assumes unit vectors (the hashing embedder
+    normalizes too).
+    """
 
     def __init__(
         self,
@@ -77,7 +92,7 @@ class GeminiDocumentEmbedder:
         api_key: str,
         model: str = DEFAULT_DOCUMENT_EMBEDDING_MODEL,
         api_base: str = DEFAULT_GEMINI_API_BASE,
-        usd_per_mtok: float = 0.025,
+        usd_per_mtok: float = 0.15,
         timeout: float = 30.0,
     ) -> None:
         if not api_key:
@@ -89,6 +104,16 @@ class GeminiDocumentEmbedder:
         self._timeout = timeout
 
     def embed_document(self, text: str) -> EmbeddingResult:
+        estimated = estimate_tokens(text)
+        if estimated > GEMINI_EMBED_MAX_TOKENS:
+            # No document content in logs — counts only.
+            logger.error(
+                "embed input over model cap: est_tokens=%d cap=%d model=%s — "
+                "Gemini truncates silently; the vector will only cover the head",
+                estimated,
+                GEMINI_EMBED_MAX_TOKENS,
+                self.model_name,
+            )
         url = f"{self._api_base}/models/{self.model_name}:embedContent"
         payload = {
             "model": f"models/{self.model_name}",
@@ -125,7 +150,7 @@ class GeminiDocumentEmbedder:
                 f"embed returned dim={len(values) if isinstance(values, list) else 0}, "
                 f"expected {EMBEDDING_DIM}"
             )
-        vector = [float(v) for v in values]
+        vector = _l2_normalize([float(v) for v in values])
         token_count = int((body.get("metadata") or {}).get("tokenCount") or estimate_tokens(text))
         cost = (token_count / 1_000_000) * self._usd_per_mtok
         return EmbeddingResult(
@@ -134,3 +159,10 @@ class GeminiDocumentEmbedder:
             token_count=token_count,
             cost_usd=cost,
         )
+
+
+def _l2_normalize(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(v * v for v in vector))
+    if norm == 0.0:
+        return vector
+    return [v / norm for v in vector]

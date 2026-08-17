@@ -200,14 +200,14 @@ def test_gemini_llm_parses_usage_and_json() -> None:
         json=payload,
         request=httpx.Request("POST", "https://example.test/generate"),
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-2.5-flash-lite")
+    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
     with patch("app.extract.llm.httpx.post", return_value=response):
         extraction, usage = client.extract_job(FIXTURE_JD, title="Senior Backend Engineer")
     assert extraction.seniority == "senior"
     assert usage.prompt_tokens == 900
     assert usage.completion_tokens == 120
     assert usage.cost_usd > 0
-    assert usage.model == "gemini-2.5-flash-lite"
+    assert usage.model == "gemini-3.5-flash-lite"
 
 
 def test_gemini_llm_429_is_retryable() -> None:
@@ -215,7 +215,7 @@ def test_gemini_llm_429_is_retryable() -> None:
         429,
         request=httpx.Request("POST", "https://example.test/generate"),
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-2.5-flash-lite")
+    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
     with patch("app.extract.llm.httpx.post", return_value=response):
         with pytest.raises(RetryableLLMError):
             client.extract_job(FIXTURE_JD)
@@ -231,7 +231,34 @@ def test_gemini_embedder_enforces_768_dim() -> None:
     with patch("app.extract.embed.httpx.post", return_value=response):
         result = embedder.embed_document("Title: Role\nSeniority: senior")
     assert len(result.vector) == EMBEDDING_DIM
-    assert result.model == "text-embedding-004"
+    assert result.model == "gemini-embedding-001"
+    # gemini-embedding-001 returns unnormalized reduced-dim vectors;
+    # the embedder must L2-normalize before storing.
+    assert abs(sum(v * v for v in result.vector) - 1.0) < 1e-6
+
+
+def test_gemini_embedder_logs_error_when_over_input_cap() -> None:
+    response = httpx.Response(
+        200,
+        json={"embedding": {"values": [0.1] * EMBEDDING_DIM}},
+        request=httpx.Request("POST", "https://example.test/embed"),
+    )
+    embedder = GeminiDocumentEmbedder(api_key="test-key")
+    # ~2,500 estimated tokens — over the 2,048 cap Gemini truncates at silently.
+    with (
+        patch("app.extract.embed.httpx.post", return_value=response),
+        patch("app.extract.embed.logger") as mock_logger,
+    ):
+        embedder.embed_document("x" * 10_000)
+    assert mock_logger.error.called
+    assert "over model cap" in mock_logger.error.call_args.args[0]
+
+    with (
+        patch("app.extract.embed.httpx.post", return_value=response),
+        patch("app.extract.embed.logger") as mock_logger,
+    ):
+        embedder.embed_document("Title: Role\nSeniority: senior")
+    assert not mock_logger.error.called
 
 
 def _insert_job(session: Session, **overrides: object) -> Job:

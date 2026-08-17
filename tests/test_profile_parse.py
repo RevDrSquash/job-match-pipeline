@@ -120,6 +120,35 @@ def test_synthesized_doc_is_job_description_shaped() -> None:
     assert "Experience:" in doc
 
 
+def test_synthesized_doc_trims_oldest_roles_to_embed_cap() -> None:
+    from app.extract.synthesize import estimate_tokens
+    from app.profile.schema import ParsedResume, WorkBullet, WorkHistoryEntry
+    from app.profile.synthesize import PROFILE_DOC_MAX_TOKENS
+
+    bullet_text = "Delivered a large migration project across many services and teams. " * 3
+    history = [
+        WorkHistoryEntry(
+            employer=f"Employer {i}",
+            title=f"Engineer {i}",
+            start_date=f"20{10 + i}-01",
+            end_date=f"20{11 + i}-01",
+            bullets=[
+                WorkBullet(span_id=f"wh:{i}:b:{j}", text=f"{bullet_text} ({i}.{j})")
+                for j in range(10)
+            ],
+        )
+        for i in range(6)
+    ]
+    parsed = ParsedResume(work_history=history, seniority="senior")
+    linker = _linker()
+
+    doc = synthesize_profile_doc(parsed, [], linker)
+    assert estimate_tokens(doc) <= PROFILE_DOC_MAX_TOKENS
+    # Most recent role always survives; the oldest is dropped first.
+    assert "Employer 5" in doc
+    assert "Employer 0" not in doc
+
+
 def test_default_filters_are_generous() -> None:
     parsed = LlmResumeParser(FakeLlmClient(LLM_JSON)).parse("ignored")
     filters = derive_default_filters(parsed)

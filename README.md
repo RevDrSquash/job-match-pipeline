@@ -51,7 +51,7 @@ Extract a seeded job (lazy; cached on `extracted_at`):
 ```bash
 # Live extraction needs LLM_API_KEY or GEMINI_API_KEY.
 # EMBEDDING_PROVIDER=hashing (default) writes 768-d hashing vectors offline;
-# set EMBEDDING_PROVIDER=gemini to use text-embedding-004.
+# set EMBEDDING_PROVIDER=gemini to use gemini-embedding-001 (768-d truncation).
 curl -s -X POST http://localhost:8080/handlers/extract-job \
   -H 'content-type: application/json' \
   -d '{"job_id":"<job uuid>"}'

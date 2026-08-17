@@ -71,10 +71,10 @@ Set `max-concurrent-dispatches` in line with the Cloud SQL connection budget, no
 
 **PoC implementation** (`POST /handlers/extract-job` with `{job_id}`):
 
-* Extraction model: `gemini-2.5-flash-lite` (cheapest adequate; postings are not personal information — no residency/ZDR constraint). Prompt calls out hard vs nice-to-have explicitly — that split drives the deterministic gate (Evaluation eval 1).
+* Extraction model: `gemini-3.5-flash-lite` (current GA budget tier; postings are not personal information — no residency/ZDR constraint). Prompt calls out hard vs nice-to-have explicitly — that split drives the deterministic gate (Evaluation eval 1).
 * Skill spans go through `app.skills.SkillLinker` only (no string matching at the handler).
 * Synthesized doc is title + seniority + canonical skill labels + hard requirements + comp, clipped to one ~500-token rerank chunk (`ARCHITECTURE.md` §3).
-* Document embedding is 768-d. Default `EMBEDDING_PROVIDER=hashing` (offline PoC); `gemini` uses `text-embedding-004`. Job and profile docs must share one provider — see `OPEN_ISSUES.md` §6.
+* Document embedding is 768-d. Default `EMBEDDING_PROVIDER=hashing` (offline); `gemini` uses `gemini-embedding-001` truncated to 768 and is the setting for retrieval-quality evals. Job and profile docs must share one provider — see `OPEN_ISSUES.md` §6.
 * Every call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (Cost Model measurement caution; needed for `OPEN_ISSUES.md` §1). JD text is never logged.
 * Permanent failures (missing/invalid `job_id`, unknown job, empty/unparseable JD): log + `pipeline_events` + 2xx. Retryable LLM/embed errors: `pipeline_events` + 5xx.
 * Idempotency: skip when `extracted_at IS NOT NULL`; write-back is `UPDATE … WHERE extracted_at IS NULL`.

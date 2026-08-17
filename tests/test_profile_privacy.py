@@ -18,7 +18,7 @@ SECRET = "SECRET_EMPLOYER_ZYX987"
 def _client() -> GeminiProfileLLM:
     return GeminiProfileLLM(
         api_key="test-key",
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.5-flash-lite",
         api_base="https://example.invalid/v1beta",
     )
 
@@ -48,7 +48,7 @@ def test_llm_usage_log_has_no_prompt_text(caplog: pytest.LogCaptureFixture) -> N
     caplog.set_level(logging.INFO)
     log_llm_usage(
         purpose="profile_parse",
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.5-flash-lite",
         input_tokens=12,
         output_tokens=4,
     )
