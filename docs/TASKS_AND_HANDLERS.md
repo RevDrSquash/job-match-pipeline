@@ -135,6 +135,19 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 
 **Why the pull path exists regardless:** the same SQL must run on demand for (a) profile edits, (b) new user backfill over the full corpus, (c) any change to matching logic. Push-only bakes decisions in at ingest time and makes A/B testing the matcher impossible.
 
+**PoC implementation** (`POST /handlers/match-batch` with `{mode: incremental|dirty}`):
+
+* No Cloud Scheduler. `jobmatch match run --mode incremental|dirty` POSTs to the handler (`LOCAL_QUEUE_BASE_URL`). Optional payload `user_ids` scopes a cycle to specific profiles (debug / tests).
+* Same SQL for both modes (`app/match/sql.py`): ATS metadata join on location (substring), work arrangement, comp floor, and title-family token, plus pgvector cosine in the same statement. Incremental adds `ingested_at > last_cycle OR extracted_at > last_cycle` so a job extracted after cycle N is recalled in cycle N+1. Dirty drops the date bound.
+* Last-cycle watermark is `max(pipeline_events.ts)` for `stage=match-batch` / `action=completed`. Override with `since` in the payload.
+* Unextracted prefilter survivors enqueue `extract-job` once per distinct `job_id` in the handler (TaskQueue has no named-task dedup) and are not matched this cycle.
+* Skill overlap is a Jaccard feature blended into the local rerank score (0.7 cosine + 0.3 Jaccard). Matched / adjacent / missing buckets are written onto `matches` (adjacency is a small label-sibling table until ESCO hierarchy is loaded).
+* Reranker is behind `app.match.Reranker`: `RERANK_PROVIDER=local` (default, embedding cosine) or `hosted` (Cohere-compatible HTTP API, cosine fallback on failure).
+* Top-N per user (`MATCH_TOP_N`, default 100) is also clipped by the remaining daily candidate cap (`DAILY_CANDIDATE_CAP`, default 500).
+* Dirty mode selects `user_profiles.rematch_needed` up to `DIRTY_PROFILE_CAP` (default 25), processes the full corpus for those users, then clears the flag.
+* Each survivor writes a `matches` row and enqueues `screen-job` with `{user_id, job_id, match_id}`. Cycle-level and per-pair `pipeline_events` are always written. Profile/resume text is never logged.
+* Meaningful vector recall needs `EMBEDDING_PROVIDER=gemini` (same provider as profile ingest). The hashing default is plumbing-only (`docs/OPEN_ISSUES.md` §6).
+
 ---
 
 ### `screen-job`

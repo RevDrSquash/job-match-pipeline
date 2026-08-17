@@ -1,6 +1,6 @@
 """Pipeline handlers.
 
-Real implementations: fetch-link-list, ingest-job, extract-job.
+Real implementations: fetch-link-list, ingest-job, extract-job, match-batch.
 Remaining stages are stubs until later issues land.
 
 Convention (see docs/TASKS_AND_HANDLERS.md): return 2xx on permanent failure
@@ -22,8 +22,11 @@ from app.db.session import db_session
 from app.extract.embed import DocumentEmbedder
 from app.extract.llm import JobLLM, RetryableLLMError
 from app.extract.service import extract_job
+from app.ingest.events import record_pipeline_event
 from app.ingest.fetch import fetch_link_list
 from app.ingest.store import ingest_posting
+from app.match.rerank import Reranker
+from app.match.service import match_batch
 from app.queue import TaskQueue
 from app.skills.linker import SkillLinker
 
@@ -40,16 +43,15 @@ HANDLER_NAMES = (
 )
 
 STUB_HANDLER_NAMES = (
-    "match-batch",
     "screen-job",
     "generate-resume",
     "verify-resume",
 )
 
-# Opt-in follow_chain smoke path after extract-job (real) into remaining stubs.
+# Opt-in follow_chain smoke path through remaining stubs. match-batch is a
+# scheduled/CLI cycle (not a follow-on from extract-job) and enqueues
+# screen-job itself for each survivor.
 STUB_CHAIN_NEXT: dict[str, str | None] = {
-    "extract-job": "match-batch",
-    "match-batch": "screen-job",
     "screen-job": "generate-resume",
     "generate-resume": "verify-resume",
     "verify-resume": None,
@@ -89,6 +91,7 @@ def create_handlers_router(
     extract_llm: JobLLM | None = None,
     extract_embedder: DocumentEmbedder | None = None,
     extract_linker: SkillLinker | None = None,
+    match_reranker: Reranker | None = None,
 ) -> APIRouter:
     global _debug_capture_enabled
     _debug_capture_enabled = enable_debug_capture
@@ -114,8 +117,6 @@ def create_handlers_router(
         except ValueError as exc:
             logger.info("fetch-link-list permanent failure: %s", exc)
             with db_session() as session:
-                from app.ingest.events import record_pipeline_event
-
                 record_pipeline_event(
                     session, stage="fetch-link-list", action="permanent_failure"
                 )
@@ -212,6 +213,51 @@ def create_handlers_router(
             "prompt_tokens": result.prompt_tokens,
             "completion_tokens": result.completion_tokens,
             "cost_usd": result.cost_usd,
+        }
+
+    @router.post("/handlers/match-batch", name="match-batch")
+    def match_batch_handler(payload: HandlerPayload) -> dict[str, Any]:
+        body = payload.model_dump()
+        record_received("match-batch", body)
+        try:
+            with db_session() as session:
+                result = match_batch(
+                    session,
+                    body,
+                    queue,
+                    reranker=match_reranker,
+                    settings=settings,
+                )
+                session.commit()
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("match-batch retryable failure")
+            try:
+                with db_session() as session:
+                    record_pipeline_event(
+                        session, stage="match-batch", action="retryable_error"
+                    )
+                    session.commit()
+            except Exception:
+                logger.exception("match-batch failed to record retryable event")
+            raise HTTPException(
+                status_code=500, detail="retryable match-batch failure"
+            ) from None
+
+        return {
+            "status": "ok",
+            "handler": "match-batch",
+            "action": result.action,
+            "mode": result.mode,
+            "cycle_at": result.cycle_at.isoformat() if result.cycle_at else None,
+            "users_considered": result.users_considered,
+            "prefilter_pairs": result.prefilter_pairs,
+            "extracts_enqueued": result.extracts_enqueued,
+            "matches_written": result.matches_written,
+            "screens_enqueued": result.screens_enqueued,
+            "dirty_cleared": result.dirty_cleared,
+            "deferred_unextracted": result.deferred_unextracted,
         }
 
     def make_stub(name: str):

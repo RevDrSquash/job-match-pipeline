@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     default_user_tier: str = "free"
     default_quota_remaining: int = 20
 
+    # match-batch (docs/TASKS_AND_HANDLERS.md). Top-N is also bounded by the
+    # remaining daily candidate cap so a misconfigured profile cannot blow rerank.
+    daily_candidate_cap: int = 500
+    match_top_n: int = 100
+    dirty_profile_cap: int = 25
+    # local = embedding cosine (no vendor). hosted = Cohere-compatible HTTP API
+    # with automatic cosine fallback if the key/URL is missing or the call fails.
+    rerank_provider: str = "local"
+    rerank_api_url: str = ""
+    rerank_api_key: str = ""
+    rerank_model: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

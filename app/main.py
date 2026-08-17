@@ -10,6 +10,7 @@ from app.config import Settings, get_settings
 from app.extract.embed import DocumentEmbedder
 from app.extract.llm import JobLLM
 from app.handlers import create_handlers_router, get_received
+from app.match.rerank import Reranker
 from app.queue import TaskQueue, get_task_queue
 from app.skills.linker import SkillLinker
 
@@ -26,6 +27,7 @@ def create_app(
     extract_llm: JobLLM | None = None,
     extract_embedder: DocumentEmbedder | None = None,
     extract_linker: SkillLinker | None = None,
+    match_reranker: Reranker | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     queue = queue or get_task_queue(settings)
@@ -41,6 +43,7 @@ def create_app(
             extract_llm=extract_llm,
             extract_embedder=extract_embedder,
             extract_linker=extract_linker,
+            match_reranker=match_reranker,
         )
     )
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Company, Job, PipelineEvent, Skill, User, UserFilter, UserProfile
 from app.db.session import normalize_database_url
+from app.match.sql import candidate_query
 from tests.conftest import requires_db
 
 
@@ -73,40 +74,15 @@ def test_match_step_relational_and_vector_query(db_session: Session) -> None:
     db_session.flush()
 
     rows = db_session.execute(
-        text(
-            """
-            SELECT
-                j.id AS job_id,
-                j.title,
-                (
-                    SELECT count(*)::int
-                    FROM unnest(j.skill_ids) AS js(skill)
-                    INNER JOIN unnest(up.skill_ids) AS us(skill) USING (skill)
-                ) AS skill_overlap,
-                1 - (j.embedding <=> up.embedding) AS similarity
-            FROM jobs j
-            JOIN user_profiles up ON up.user_id = :user_id
-            JOIN user_filters uf ON uf.user_id = up.user_id
-            WHERE j.extracted_at IS NOT NULL
-              AND j.embedding IS NOT NULL
-              AND up.embedding IS NOT NULL
-              AND (uf.locations IS NULL OR j.location = ANY(uf.locations))
-              AND (uf.comp_floor IS NULL OR j.comp_min >= uf.comp_floor)
-              AND (
-                  uf.work_arrangement IS NULL
-                  OR j.work_arrangement = ANY(uf.work_arrangement)
-              )
-            ORDER BY j.embedding <=> up.embedding
-            LIMIT 10
-            """
-        ),
-        {"user_id": user.id},
+        candidate_query(),
+        {"user_ids": [user.id], "since": None},
     ).mappings().all()
 
-    assert len(rows) == 1
-    assert rows[0]["title"] == "Backend Engineer"
-    assert rows[0]["skill_overlap"] == 1
-    assert rows[0]["similarity"] == pytest.approx(1.0)
+    ours = [row for row in rows if row["job_id"] == job.id]
+    assert len(ours) == 1
+    assert ours[0]["title"] == "Backend Engineer"
+    assert ours[0]["skill_overlap"] == 1
+    assert ours[0]["similarity"] == pytest.approx(1.0)
 
 
 @requires_db

@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch profile` CLI for resume ingestion. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch` CLI for profile ingest and match cycles. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -83,7 +83,14 @@ jobmatch profile show --user-id <uuid>
 jobmatch profile edit <uuid> --comp-floor 140000
 ```
 
-`python -m app` is the same entry point. `profile edit` bumps `profile_version` and sets `rematch_needed`; it does not trigger a rematch (the scheduled `match-batch` dirty path does).
+`python -m app` is the same entry point. `profile edit` bumps `profile_version` and sets `rematch_needed`; it does not trigger a rematch. There is no Cloud Scheduler in the PoC — run a cycle by POSTing the handler:
+
+```bash
+jobmatch match run --mode incremental
+jobmatch match run --mode dirty
+```
+
+Incremental matches jobs ingested or extracted since the last completed cycle against all profiles. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
 
 Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below); when the table is empty the CLI falls back to a small built-in seed taxonomy. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
 
