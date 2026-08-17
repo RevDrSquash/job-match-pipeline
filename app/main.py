@@ -7,8 +7,11 @@ import logging
 from fastapi import FastAPI
 
 from app.config import Settings, get_settings
+from app.extract.embed import DocumentEmbedder
+from app.extract.llm import JobLLM
 from app.handlers import create_handlers_router, get_received
 from app.queue import TaskQueue, get_task_queue
+from app.skills.linker import SkillLinker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,6 +22,10 @@ logging.basicConfig(
 def create_app(
     settings: Settings | None = None,
     queue: TaskQueue | None = None,
+    *,
+    extract_llm: JobLLM | None = None,
+    extract_embedder: DocumentEmbedder | None = None,
+    extract_linker: SkillLinker | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     queue = queue or get_task_queue(settings)
@@ -30,6 +37,10 @@ def create_app(
         create_handlers_router(
             queue,
             enable_debug_capture=settings.enable_debug_capture,
+            settings=settings,
+            extract_llm=extract_llm,
+            extract_embedder=extract_embedder,
+            extract_linker=extract_linker,
         )
     )
 

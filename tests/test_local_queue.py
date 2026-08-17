@@ -43,9 +43,10 @@ def test_local_queue_delivers_to_stub_handler(local_server: str) -> None:
 
 
 def test_stub_chain_enqueues_end_to_end(local_server: str) -> None:
-    """Stub stages still chain when follow_chain=true (ingest path is real, not stubbed)."""
+    """extract-job (real) still fans into remaining stubs when follow_chain=true."""
     from app.handlers import STUB_HANDLER_NAMES
 
+    chain = ("extract-job", *STUB_HANDLER_NAMES)
     queue = LocalTaskQueue(local_server)
     queue.enqueue(
         "extract-job",
@@ -54,15 +55,13 @@ def test_stub_chain_enqueues_end_to_end(local_server: str) -> None:
 
     def full_chain_seen() -> bool:
         seen = {name for name, _ in get_received()}
-        return set(STUB_HANDLER_NAMES).issubset(seen)
+        return set(chain).issubset(seen)
 
     _wait_for(full_chain_seen, timeout=15.0)
 
     order = [name for name, _ in get_received()]
-    first_index = {name: order.index(name) for name in STUB_HANDLER_NAMES}
-    assert [first_index[name] for name in STUB_HANDLER_NAMES] == list(
-        range(len(STUB_HANDLER_NAMES))
-    )
+    first_index = {name: order.index(name) for name in chain}
+    assert [first_index[name] for name in chain] == list(range(len(chain)))
 
     health = httpx.get(f"{local_server}/health", timeout=5.0)
     assert health.status_code == 200
