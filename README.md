@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept scaffold. FastAPI handler stubs, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), and Alembic migrations for the full data model are in place. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, and a `job-match-seed` CLI for the ~500-posting corpus. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -33,12 +33,25 @@ Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` agains
 
 Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`.
 
-Smoke the stub chain (opt-in: each handler enqueues the next only when `follow_chain` is true; default is off):
+### Seed corpus (~500 postings)
+
+Hand-picked boards live in [`config/seed_companies.json`](config/seed_companies.json). After Postgres is up and migrated:
+
+```bash
+pip install -e '.[dev]'
+alembic upgrade head
+python -m app.seed --target 500
+# or: job-match-seed --target 500
+```
+
+The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. No LLM calls on this path.
+
+Smoke a single board through the HTTP handlers:
 
 ```bash
 curl -s -X POST http://localhost:8080/handlers/fetch-link-list \
   -H 'content-type: application/json' \
-  -d '{"run_id":"local-1","follow_chain":true}'
+  -d '{"ats_provider":"greenhouse","board_token":"airtable","company_name":"Airtable"}'
 ```
 
 `ENABLE_DEBUG_CAPTURE=true` turns on an in-memory receipt log and `GET /_debug/received` for local tests. Leave it false (the default) outside PoC/test so it cannot ship to Cloud Run.

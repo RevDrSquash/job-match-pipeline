@@ -26,6 +26,9 @@ dev = [
     "ruff==0.16.3",
 ]
 
+[project.scripts]
+job-match-seed = "app.seed:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 

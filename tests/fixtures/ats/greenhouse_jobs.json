@@ -1,0 +1,105 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/airtable/jobs/8403127002",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 6354778002,
+      "location": {
+        "name": "Remote - US"
+      },
+      "metadata": null,
+      "id": 8403127002,
+      "updated_at": "2026-03-27T15:33:08-04:00",
+      "requisition_id": "Pipeline",
+      "title": "Account Executive, Strategic Accounts",
+      "company_name": "Airtable",
+      "first_published": "2026-02-28T09:04:24-05:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;Airtable is the no-code app platform that empowers people closest to the work to accelerate their most critical business processes. More than 500,000 organizations, including 80% of the Fortune 100, rely on Airtable to transform how work gets done.&lt;/p&gt;&lt;/div&gt;&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;As a Strategic Account Executive at Airtable you will have the opportunity to work closely with a variety of strategic ac...</div>",
+      "departments": [
+        {
+          "id": 4009067002,
+          "name": "Sales",
+          "child_ids": [],
+          "parent_id": 4060295002
+        }
+      ],
+      "offices": [
+        {
+          "id": 4005133002,
+          "name": "Remote - US",
+          "location": null,
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": null,
+      "ai_opt_out_request_url": null
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/airtable/jobs/8654173002",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 6428105002,
+      "location": {
+        "name": "New York, NY; Remote - US"
+      },
+      "metadata": null,
+      "id": 8654173002,
+      "updated_at": "2026-08-01T04:17:01-04:00",
+      "requisition_id": "P-TEQ001180-20250501",
+      "title": "Delivery Consultant",
+      "company_name": "Airtable",
+      "first_published": "2026-07-28T15:59:04-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;Airtable is the no-code app platform that empowers people closest to the work to accelerate their most critical business processes. More than 500,000 organizations, including 80% of the Fortune 100, rely on Airtable to transform how work gets done.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;mb1&quot;&gt;Work isn&#39;t being replaced. It&#39;s being redesigned. Airtable is built for that moment: the same platform humans run their most critical wor...</div>",
+      "departments": [
+        {
+          "id": 4009072002,
+          "name": "Customer Success & Services",
+          "child_ids": [],
+          "parent_id": 4060295002
+        }
+      ],
+      "offices": [
+        {
+          "id": 4005041002,
+          "name": "New York",
+          "location": "New York, New York, United States",
+          "child_ids": [],
+          "parent_id": null
+        },
+        {
+          "id": 4005133002,
+          "name": "Remote - US",
+          "location": null,
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": null,
+      "ai_opt_out_request_url": null
+    }
+  ]
+}

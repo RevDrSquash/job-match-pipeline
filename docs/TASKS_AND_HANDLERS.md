@@ -195,10 +195,10 @@ Failure → regenerate once with the specific violations named, then flag for hu
 
 ```
 jobs
-  id, url_hash (unique), source, ats_provider, company_id
+  id, url_hash (unique), url, source, ats_provider, company_id
   ingested_at, posted_at, expires_at
   -- from ATS metadata, available at ingest, drives the prefilter:
-  title, location, work_arrangement, department, comp_min, comp_max
+  title, location, work_arrangement, department, employment_type, comp_min, comp_max
   raw_jd
   -- from extract-job, NULL until first prefilter hit:
   extracted_at
