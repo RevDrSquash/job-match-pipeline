@@ -131,7 +131,7 @@ def log_llm_usage(usage: LLMUsage, *, job_id: str | None = None) -> None:
     )
 
 
-def _usage_cost(
+def usage_cost(
     prompt_tokens: int,
     completion_tokens: int,
     *,
@@ -143,7 +143,7 @@ def _usage_cost(
     ) * output_usd_per_mtok
 
 
-def _parse_json_object(text: str) -> dict[str, Any]:
+def parse_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = stripped.split("\n", 1)[-1]
@@ -159,6 +159,79 @@ def _parse_json_object(text: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RetryableLLMError("LLM JSON was not an object")
     return data
+
+
+def gemini_generate_json(
+    *,
+    api_key: str,
+    model: str,
+    api_base: str,
+    system_prompt: str,
+    user_text: str,
+    response_schema: dict[str, Any],
+    input_usd_per_mtok: float,
+    output_usd_per_mtok: float,
+    timeout: float = 45.0,
+) -> tuple[dict[str, Any], LLMUsage]:
+    """Structured Gemini generateContent. Raises RetryableLLMError on transport/5xx."""
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "responseSchema": response_schema,
+        },
+    }
+    url = f"{api_base.rstrip('/')}/models/{model}:generateContent"
+    try:
+        response = httpx.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+            json=payload,
+            timeout=timeout,
+        )
+    except httpx.HTTPError as exc:
+        raise RetryableLLMError(f"llm transport error: {type(exc).__name__}") from exc
+
+    if response.status_code in {429, 500, 502, 503, 504} or response.status_code >= 500:
+        raise RetryableLLMError(f"llm HTTP {response.status_code}")
+    if response.status_code >= 400:
+        # Auth / quota / bad request: retry after operator fix.
+        raise RetryableLLMError(f"llm HTTP {response.status_code}")
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise RetryableLLMError("llm response was not JSON") from exc
+
+    usage_meta = body.get("usageMetadata") or {}
+    prompt_tokens = int(usage_meta.get("promptTokenCount") or 0)
+    completion_tokens = int(usage_meta.get("candidatesTokenCount") or 0)
+    usage = LLMUsage(
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=usage_cost(
+            prompt_tokens,
+            completion_tokens,
+            input_usd_per_mtok=input_usd_per_mtok,
+            output_usd_per_mtok=output_usd_per_mtok,
+        ),
+    )
+
+    candidates = body.get("candidates") or []
+    if not candidates:
+        raise RetryableLLMError("llm returned no candidates")
+    parts = ((candidates[0].get("content") or {}).get("parts")) or []
+    text = "".join(str(part.get("text") or "") for part in parts)
+    if not text.strip():
+        raise RetryableLLMError("llm returned empty content")
+
+    return parse_json_object(text), usage
 
 
 class GeminiJobLLM:
@@ -191,62 +264,15 @@ class GeminiJobLLM:
             user_parts.append(f"Title: {title.strip()}")
         user_parts.append("Job description:")
         user_parts.append(raw_jd)
-        payload = {
-            "systemInstruction": {"parts": [{"text": EXTRACTION_SYSTEM_PROMPT}]},
-            "contents": [{"role": "user", "parts": [{"text": "\n".join(user_parts)}]}],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": EXTRACTION_RESPONSE_SCHEMA,
-            },
-        }
-        url = f"{self._api_base}/models/{self._model}:generateContent"
-        try:
-            response = httpx.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self._api_key,
-                },
-                json=payload,
-                timeout=self._timeout,
-            )
-        except httpx.HTTPError as exc:
-            raise RetryableLLMError(f"llm transport error: {type(exc).__name__}") from exc
-
-        if response.status_code in {429, 500, 502, 503, 504} or response.status_code >= 500:
-            raise RetryableLLMError(f"llm HTTP {response.status_code}")
-        if response.status_code >= 400:
-            # Auth / quota / bad request: retry after operator fix, do not mark JD bad.
-            raise RetryableLLMError(f"llm HTTP {response.status_code}")
-
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise RetryableLLMError("llm response was not JSON") from exc
-
-        usage_meta = body.get("usageMetadata") or {}
-        prompt_tokens = int(usage_meta.get("promptTokenCount") or 0)
-        completion_tokens = int(usage_meta.get("candidatesTokenCount") or 0)
-        usage = LLMUsage(
+        data, usage = gemini_generate_json(
+            api_key=self._api_key,
             model=self._model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cost_usd=_usage_cost(
-                prompt_tokens,
-                completion_tokens,
-                input_usd_per_mtok=self._input_usd_per_mtok,
-                output_usd_per_mtok=self._output_usd_per_mtok,
-            ),
+            api_base=self._api_base,
+            system_prompt=EXTRACTION_SYSTEM_PROMPT,
+            user_text="\n".join(user_parts),
+            response_schema=EXTRACTION_RESPONSE_SCHEMA,
+            input_usd_per_mtok=self._input_usd_per_mtok,
+            output_usd_per_mtok=self._output_usd_per_mtok,
+            timeout=self._timeout,
         )
-
-        candidates = body.get("candidates") or []
-        if not candidates:
-            raise RetryableLLMError("llm returned no candidates")
-        parts = ((candidates[0].get("content") or {}).get("parts")) or []
-        text = "".join(str(part.get("text") or "") for part in parts)
-        if not text.strip():
-            raise RetryableLLMError("llm returned empty content")
-
-        extraction = JobExtraction.model_validate(_parse_json_object(text))
-        return extraction, usage
+        return JobExtraction.model_validate(data), usage

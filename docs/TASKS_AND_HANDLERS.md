@@ -169,6 +169,15 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 
 On pass **and** user has remaining quota → enqueue `generate-resume`.
 
+**PoC implementation** (`POST /handlers/screen-job` with `{match_id}` from `match-batch`):
+
+* **Stage 1** is set-math on canonical IDs: `jobs.skill_ids` vs `user_profiles.skill_ids` (`app.screen.hard_requirement_overlap`). Extract does not yet write a separate hard-requirement id list, so the PoC uses the job's linked skill set. Missing count is logged and returned; `HARD_REQ_MISSING_DROP_THRESHOLD` is unset, so a single miss never auto-drops. Set the env var later once false-negative data exists.
+* **Stage 2** sends `jobs.synthesized_doc` + `user_profiles.synthesized_doc` to `GATE_MODEL` (default `gemini-3.5-flash-lite`). Structured output `{verdict, reason, confidence}`. Condensed profile is personal information — prompt/completion text is never logged; retryable errors are stripped of upstream args.
+* `gate_verdict` / `gate_reason` are written with `UPDATE … WHERE gate_verdict IS NULL`. Redelivery of an already-screened match is a no-op (`skipped_screened`) and does not decrement quota again.
+* Rejections are always persisted (they are the screened-out view). Pass + `users.quota_remaining > 0` atomically decrements quota and enqueues `generate-resume` with `{user_id, job_id, match_id}`. Pass with no remaining quota is `quota_exhausted` — verdict still lands on the row.
+* When the gate rejects and `rerank_score >= RERANK_HIGH_SCORE_THRESHOLD` (default 0.7), log `reranker_gate_disagreement` explicitly and write a second `pipeline_events` row. That is the feedback-loop signal (`EVALUATION.md` operational discipline).
+* Every gate LLM call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (needed for `OPEN_ISSUES.md` §1). Permanent failures (missing/invalid `match_id`, unknown match): 2xx. Retryable LLM errors: `pipeline_events` + 5xx.
+
 ---
 
 ### `generate-resume`

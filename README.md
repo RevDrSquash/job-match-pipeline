@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` are real; later stages are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch` CLI for profile ingest and match cycles. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` are real; generate/verify are stubs), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, and a `jobmatch` CLI for profile ingest and match cycles. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -58,6 +58,17 @@ curl -s -X POST http://localhost:8080/handlers/extract-job \
 ```
 
 Re-POSTing the same `job_id` is a no-op. Permanent failures (unparseable JD) return 2xx; retryable LLM errors return 5xx. Token counts and estimated cost are logged on every extraction — never the JD text.
+
+Screen a match written by `match-batch` (deterministic hard-req overlap, then cheap LLM gate):
+
+```bash
+# Live gate needs LLM_API_KEY or GEMINI_API_KEY (GATE_MODEL, default gemini-3.5-flash-lite).
+curl -s -X POST http://localhost:8080/handlers/screen-job \
+  -H 'content-type: application/json' \
+  -d '{"match_id":"<match uuid>"}'
+```
+
+Re-POSTing the same `match_id` is a no-op. Pass + remaining quota enqueues `generate-resume` and decrements `users.quota_remaining`. Rejections are persisted (`gate_verdict` / `gate_reason`). Profile text is never logged.
 
 Smoke a single board through the HTTP handlers:
 

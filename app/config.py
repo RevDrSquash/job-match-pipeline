@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     rerank_api_key: str = ""
     rerank_model: str = ""
 
+    # screen-job cheap LLM gate. Condensed profile is personal information —
+    # ZDR/no-training vendor terms are a production blocker (privacy doc).
+    # Model name lives here, never at call sites.
+    gate_model: str = "gemini-3.5-flash-lite"
+    gate_input_usd_per_mtok: float = 0.30
+    gate_output_usd_per_mtok: float = 2.50
+    # Log reranker/gate disagreement when the gate rejects at or above this score.
+    rerank_high_score_threshold: float = 0.7
+    # None = record missing hard-req count, do not auto-drop (current policy).
+    hard_req_missing_drop_threshold: int | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

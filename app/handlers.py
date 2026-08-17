@@ -1,7 +1,7 @@
 """Pipeline handlers.
 
-Real implementations: fetch-link-list, ingest-job, extract-job, match-batch.
-Remaining stages are stubs until later issues land.
+Real implementations: fetch-link-list, ingest-job, extract-job, match-batch,
+screen-job. Remaining stages are stubs until later issues land.
 
 Convention (see docs/TASKS_AND_HANDLERS.md): return 2xx on permanent failure
 after logging; 5xx only for genuinely retryable errors.
@@ -28,6 +28,8 @@ from app.ingest.store import ingest_posting
 from app.match.rerank import Reranker
 from app.match.service import match_batch
 from app.queue import TaskQueue
+from app.screen.llm import GateLLM
+from app.screen.service import screen_job
 from app.skills.linker import SkillLinker
 
 logger = logging.getLogger(__name__)
@@ -43,16 +45,14 @@ HANDLER_NAMES = (
 )
 
 STUB_HANDLER_NAMES = (
-    "screen-job",
     "generate-resume",
     "verify-resume",
 )
 
-# Opt-in follow_chain smoke path through remaining stubs. match-batch is a
-# scheduled/CLI cycle (not a follow-on from extract-job) and enqueues
-# screen-job itself for each survivor.
+# Opt-in follow_chain smoke path through remaining stubs. match-batch and
+# screen-job enqueue their real successors themselves (screen-job only on
+# pass + remaining quota).
 STUB_CHAIN_NEXT: dict[str, str | None] = {
-    "screen-job": "generate-resume",
     "generate-resume": "verify-resume",
     "verify-resume": None,
 }
@@ -92,6 +92,7 @@ def create_handlers_router(
     extract_embedder: DocumentEmbedder | None = None,
     extract_linker: SkillLinker | None = None,
     match_reranker: Reranker | None = None,
+    screen_llm: GateLLM | None = None,
 ) -> APIRouter:
     global _debug_capture_enabled
     _debug_capture_enabled = enable_debug_capture
@@ -258,6 +259,63 @@ def create_handlers_router(
             "screens_enqueued": result.screens_enqueued,
             "dirty_cleared": result.dirty_cleared,
             "deferred_unextracted": result.deferred_unextracted,
+        }
+
+    @router.post("/handlers/screen-job", name="screen-job")
+    def screen_job_handler(payload: HandlerPayload) -> dict[str, Any]:
+        body = payload.model_dump()
+        record_received("screen-job", body)
+        raw_match_id = body.get("match_id")
+        match_uuid = _parse_uuid_or_none(raw_match_id)
+        if raw_match_id in (None, "") or match_uuid is None:
+            action = "missing_match_id" if raw_match_id in (None, "") else "invalid_match_id"
+            logger.info("screen-job permanent failure action=%s", action)
+            return {
+                "status": "ok",
+                "handler": "screen-job",
+                "action": action,
+                "match_id": None,
+                "gate_verdict": None,
+                "hard_req_missing_count": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": 0.0,
+                "generate_enqueued": False,
+            }
+        try:
+            with db_session() as session:
+                try:
+                    result = screen_job(
+                        session,
+                        body,
+                        queue,
+                        llm=screen_llm,
+                        settings=settings,
+                    )
+                    session.commit()
+                except RetryableLLMError:
+                    session.commit()
+                    raise
+        except RetryableLLMError:
+            logger.exception("screen-job retryable failure")
+            raise HTTPException(status_code=503, detail="retryable screen-job failure") from None
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("screen-job unexpected failure")
+            raise HTTPException(status_code=500, detail="retryable screen-job failure") from None
+
+        return {
+            "status": "ok",
+            "handler": "screen-job",
+            "action": result.action,
+            "match_id": result.match_id,
+            "gate_verdict": result.gate_verdict,
+            "hard_req_missing_count": result.hard_req_missing_count,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "cost_usd": result.cost_usd,
+            "generate_enqueued": result.generate_enqueued,
         }
 
     def make_stub(name: str):

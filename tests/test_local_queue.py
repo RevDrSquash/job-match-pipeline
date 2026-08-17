@@ -49,7 +49,7 @@ def test_stub_chain_enqueues_end_to_end(local_server: str) -> None:
     chain = STUB_HANDLER_NAMES
     queue = LocalTaskQueue(local_server)
     queue.enqueue(
-        "screen-job",
+        "generate-resume",
         {"run_id": "chain-1", "follow_chain": True},
     )
 

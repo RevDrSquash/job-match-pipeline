@@ -13,6 +13,8 @@ Why it matters: at $0.005/call the gate costs ~$15/user/mo, which breaks the "sc
 
 The architectural decisions (separate gate call, gate placement before generation) hold under either figure, so the PoC is unaffected. **Resolution:** measure real token counts and cost per gate call during the PoC — already listed as an open cost question — then correct whichever doc is wrong.
 
+**PoC instrumentation (DEF-22):** `screen-job` now logs `prompt_tokens` / `completion_tokens` / `cost_usd` on every gate call (`GATE_MODEL`, default `gemini-3.5-flash-lite`). The ~10× discrepancy stays open until we have a measured distribution; do not "correct" either doc from a single fixture call.
+
 ## 2. Recall@K eval set size vs. the 500-posting seed corpus
 
 Evaluation Strategy specifies "a fixed corpus (a few thousand postings) with exhaustive relevance labels" for retrieval recall@K, but the PoC seed corpus is ~500 postings, and DEF-14 requires all four non-negotiable evals running. The Bootstrapping section already sanctions starting smaller ("a few hundred real postings... enough for evals 1–3 immediately").
