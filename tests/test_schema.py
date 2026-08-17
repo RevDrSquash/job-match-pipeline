@@ -6,30 +6,37 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import Company, Job, PipelineEvent, User, UserFilter, UserProfile
 from app.db.session import get_engine, normalize_database_url
 
 
 def _database_available() -> bool:
+    # Probe with a bare engine: get_engine() registers the pgvector type adapter
+    # on connect, which fails on a reachable-but-unmigrated database and would
+    # make these tests skip with a misleading reason.
+    engine = create_engine(normalize_database_url(get_settings().database_url))
     try:
-        with get_engine().connect() as conn:
+        with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except OperationalError:
         return False
+    finally:
+        engine.dispose()
 
 
-pytestmark = pytest.mark.skipif(
+requires_db = pytest.mark.skipif(
     not _database_available(),
     reason="Postgres not reachable (start with: docker compose up db -d)",
 )
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="module")
 def apply_migrations() -> None:
     from alembic import command
     from alembic.config import Config
@@ -39,7 +46,7 @@ def apply_migrations() -> None:
 
 
 @pytest.fixture
-def db_session() -> Session:
+def db_session(apply_migrations: None) -> Session:
     engine = get_engine()
     connection = engine.connect()
     transaction = connection.begin()
@@ -58,6 +65,7 @@ def _unit_vector(dim: int, index: int = 0) -> list[float]:
     return vec
 
 
+@requires_db
 def test_match_step_relational_and_vector_query(db_session: Session) -> None:
     """Combined prefilter + vector similarity query shape used by match-batch."""
     company = Company(name="Acme Corp", ats_provider="greenhouse")
@@ -145,6 +153,7 @@ def test_match_step_relational_and_vector_query(db_session: Session) -> None:
     assert rows[0]["similarity"] == pytest.approx(1.0)
 
 
+@requires_db
 def test_url_hash_unique_constraint(db_session: Session) -> None:
     db_session.add(Job(url_hash="dup-hash", title="First"))
     db_session.flush()
@@ -154,6 +163,7 @@ def test_url_hash_unique_constraint(db_session: Session) -> None:
         db_session.flush()
 
 
+@requires_db
 def test_url_hash_upsert(db_session: Session) -> None:
     """ingest-job upsert path: ON CONFLICT (url_hash) DO UPDATE."""
     job_id = uuid.uuid4()
@@ -195,6 +205,7 @@ def test_url_hash_upsert(db_session: Session) -> None:
     assert updated.title == "Updated title"
 
 
+@requires_db
 def test_pipeline_events_user_id_strippable(db_session: Session) -> None:
     """user_id has no FK — anonymization can null it without deleting the row."""
     user = User(tier="free")
