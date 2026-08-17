@@ -38,8 +38,9 @@ requires_db = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def apply_migrations() -> None:
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
