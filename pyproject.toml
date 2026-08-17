@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "job-match-pipeline"
+version = "0.1.0"
+description = "Job matching pipeline: ingest, extract, match, and generate fabrication-free resumes."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn[standard]==0.35.0",
+    "httpx==0.28.1",
+    "pydantic-settings==2.10.1",
+    "google-cloud-tasks==2.19.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.1",
+    "ruff==0.12.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
