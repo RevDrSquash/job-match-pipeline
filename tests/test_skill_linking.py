@@ -87,6 +87,107 @@ def test_similarity_disabled_without_embedder() -> None:
     assert bare.link_span("manage kubernetes clusters") is None
 
 
+class _FixedEmbedder:
+    """Deterministic 2-d embedder for two-tier similarity tests."""
+
+    dim = 2
+
+    def __init__(self, table: dict[str, list[float]]) -> None:
+        self._table = table
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [list(self._table[text]) for text in texts]
+
+
+def _sibling_linker(
+    *,
+    high_confidence: float,
+    threshold: float,
+    margin: float,
+    query: str,
+    query_vec: list[float],
+    postgres_vec: tuple[float, ...] = (0.0, 1.0),
+) -> InMemorySkillLinker:
+    mysql = SkillRecord(
+        id="esco:mysql",
+        canonical_label="MySQL",
+        embedding=(1.0, 0.0),
+        embedding_model="fixed",
+    )
+    postgres = SkillRecord(
+        id="esco:postgresql",
+        canonical_label="PostgreSQL",
+        embedding=postgres_vec,
+        embedding_model="fixed",
+    )
+    embedder = _FixedEmbedder({query: query_vec})
+    return InMemorySkillLinker(
+        (mysql, postgres),
+        embedder=embedder,
+        similarity_threshold=threshold,
+        high_confidence=high_confidence,
+        margin=margin,
+        build_missing_embeddings=False,
+    )
+
+
+_TIGHT_POSTGRES = (0.995, 0.0998749)
+
+
+def test_high_confidence_links_despite_tight_sibling_margin() -> None:
+    # query = MySQL; PostgreSQL is a near-tied sibling (margin would refuse).
+    query = "sql engine"
+    linker = _sibling_linker(
+        high_confidence=0.90,
+        threshold=0.70,
+        margin=0.15,
+        query=query,
+        query_vec=[1.0, 0.0],
+        postgres_vec=_TIGHT_POSTGRES,
+    )
+    assert linker.link_span(query) == "esco:mysql"
+
+
+def test_threshold_plus_margin_links_clear_winner() -> None:
+    query = "sql engine"
+    # Cosine vs MySQL = 0.80, vs orthogonal PostgreSQL = 0.60.
+    linker = _sibling_linker(
+        high_confidence=0.90,
+        threshold=0.70,
+        margin=0.05,
+        query=query,
+        query_vec=[0.80, 0.60],
+    )
+    assert linker.link_span(query) == "esco:mysql"
+
+
+def test_near_tied_siblings_below_high_confidence_are_refused() -> None:
+    query = "sql engine"
+    # Disable the high-confidence tier so a hair-width winner must clear margin.
+    linker = _sibling_linker(
+        high_confidence=1.1,
+        threshold=0.70,
+        margin=0.05,
+        query=query,
+        query_vec=[1.0, 0.0],
+        postgres_vec=_TIGHT_POSTGRES,
+    )
+    # best=1.0, second≈0.995, margin=0.005 < 0.05
+    assert linker.link_span(query) is None
+
+
+def test_below_threshold_is_refused_even_with_wide_margin() -> None:
+    query = "sql engine"
+    linker = _sibling_linker(
+        high_confidence=0.90,
+        threshold=0.85,
+        margin=0.0,
+        query=query,
+        query_vec=[0.80, 0.60],
+    )
+    assert linker.link_span(query) is None
+
+
 def test_parse_sample_csv_skips_skill_groups() -> None:
     path = Path("tests/fixtures/skills_sample.csv")
     rows = parse_skills_csv(path)

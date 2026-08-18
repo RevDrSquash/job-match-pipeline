@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import Job, Match, User, UserProfile
-from app.extract.llm import RetryableLLMError
+from app.extract.llm import PermanentLLMError, RetryableLLMError
 from app.ingest.events import record_pipeline_event, usage_details
 from app.privacy import log_profile_access
 from app.queue import TaskQueue
@@ -132,6 +132,29 @@ def screen_job(
                 active_llm = llm if llm is not None else build_gate_llm(settings)
                 decision, usage = active_llm.screen(job_doc=job_doc, profile_doc=profile_doc)
                 latency_ms = (time.perf_counter() - started) * 1000
+            except PermanentLLMError as exc:
+                # Leave gate_verdict NULL: the match stays screenable if the
+                # task is ever re-driven, but this delivery must not retry.
+                logger.info(
+                    "screen-job permanent failure action=llm_permanent_failure "
+                    "match_id=%s error=%s",
+                    match.id,
+                    exc,
+                )
+                record_pipeline_event(
+                    session,
+                    stage=STAGE,
+                    action="llm_permanent_failure",
+                    user_id=match.user_id,
+                    job_id=match.job_id,
+                    score=match.rerank_score,
+                )
+                session.flush()
+                return ScreenResult(
+                    action="llm_permanent_failure",
+                    match_id=str(match.id),
+                    hard_req_missing_count=overlap.missing_count,
+                )
             except RetryableLLMError:
                 record_pipeline_event(
                     session,

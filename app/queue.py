@@ -27,6 +27,30 @@ class TaskQueue(Protocol):
     ) -> None: ...
 
 
+class BufferedTaskQueue:
+    """Collects enqueues during a handler transaction; flush() after commit.
+
+    The local queue delivers immediately from a background thread, so a task
+    enqueued mid-transaction can reach its handler before the row it references
+    is committed. The child then sees not_found — a permanent 2xx — and the
+    follow-on work is silently lost (an orphaned match or generation). Handlers
+    wrap the real queue in this buffer and flush only after session.commit().
+    Nothing is dispatched if the transaction fails.
+    """
+
+    def __init__(self, inner: TaskQueue) -> None:
+        self._inner = inner
+        self._pending: list[tuple[str, dict, int | None]] = []
+
+    def enqueue(self, queue_name: str, payload: dict, delay: int | None = None) -> None:
+        self._pending.append((queue_name, payload, delay))
+
+    def flush(self) -> None:
+        pending, self._pending = self._pending, []
+        for queue_name, payload, delay in pending:
+            self._inner.enqueue(queue_name, payload, delay)
+
+
 class LocalTaskQueue:
     """POST to local handler endpoints in a background thread with retries."""
 

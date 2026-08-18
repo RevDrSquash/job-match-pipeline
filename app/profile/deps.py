@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from dataclasses import dataclass
 
@@ -15,12 +14,8 @@ from app.extract.llm import RetryableLLMError
 from app.privacy import PrivacySafeError
 from app.profile.llm import GeminiProfileLLM
 from app.profile.parse import FallbackResumeParser, LlmResumeParser, ResumeParser
-from app.skills.embeddings import HashingEmbedder
-from app.skills.linker import InMemorySkillLinker, SkillLinker
-from app.skills.repository import load_skill_records
-from app.skills.taxonomy import seed_records
-
-logger = logging.getLogger(__name__)
+from app.skills.factory import linker_from_session
+from app.skills.linker import SkillLinker
 
 
 @dataclass(frozen=True)
@@ -38,13 +33,11 @@ def _api_key(settings: Settings) -> str:
     )
 
 
-def build_skill_linker(session: Session) -> SkillLinker:
+def build_skill_linker(
+    session: Session, settings: Settings | None = None
+) -> SkillLinker:
     """Shared linker over the ``skills`` table; PoC seed when it is empty."""
-    records = load_skill_records(session)
-    if not records:
-        logger.info("skills table empty; using PoC seed taxonomy (run scripts/load_esco.py)")
-        records = list(seed_records())
-    return InMemorySkillLinker(records, embedder=HashingEmbedder())
+    return linker_from_session(session, settings, allow_seed=True)
 
 
 def build_profile_deps(
@@ -53,8 +46,8 @@ def build_profile_deps(
     *,
     allow_fallback: bool = False,
 ) -> ProfileDeps:
-    linker = build_skill_linker(session)
     try:
+        linker = build_skill_linker(session, settings)
         embedder = build_document_embedder(settings)
     except RetryableLLMError as exc:
         # CLI context: surface as a safe config error rather than 5xx semantics.

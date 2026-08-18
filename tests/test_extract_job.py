@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import EMBEDDING_DIM, Job, PipelineEvent
+from app.db.models import EMBEDDING_DIM, Job, PipelineEvent, Skill
 from app.db.session import get_engine
 from app.extract.embed import GeminiDocumentEmbedder, HashingDocumentEmbedder
 from app.extract.llm import (
@@ -22,6 +22,7 @@ from app.extract.llm import (
     GeminiJobLLM,
     JobExtraction,
     LLMUsage,
+    PermanentLLMError,
     RetryableLLMError,
 )
 from app.extract.service import extract_job
@@ -221,6 +222,75 @@ def test_gemini_llm_429_is_retryable() -> None:
             client.extract_job(FIXTURE_JD)
 
 
+def test_gemini_llm_400_is_permanent_poison_message() -> None:
+    """A request-level 400 retried via the queue returns the same answer every
+    time — classify permanent so the handler responds 2xx and stops the burn."""
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://example.test/generate"),
+    )
+    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
+    with patch("app.extract.llm.httpx.post", return_value=response) as mock_post:
+        with pytest.raises(PermanentLLMError):
+            client.extract_job(FIXTURE_JD)
+    assert mock_post.call_count == 1  # no in-process retry for a poison request
+
+
+def test_gemini_llm_config_statuses_stay_retryable() -> None:
+    """401/403/404 are operator config errors (bad key / model name): they
+    affect every task and bill nothing, so the task must survive retries."""
+    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
+    for status in (401, 403, 404):
+        response = httpx.Response(
+            status,
+            request=httpx.Request("POST", "https://example.test/generate"),
+        )
+        with patch("app.extract.llm.httpx.post", return_value=response):
+            with pytest.raises(RetryableLLMError):
+                client.extract_job(FIXTURE_JD)
+
+
+def _gemini_payload(text: str) -> dict:
+    return {
+        "candidates": [{"content": {"parts": [{"text": text}]}}],
+        "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 120},
+    }
+
+
+def test_gemini_llm_malformed_output_retried_once_then_permanent() -> None:
+    """A billed-but-malformed completion gets one in-process retry, then goes
+    permanent — never back to the queue at full price per redelivery."""
+    bad = httpx.Response(
+        200,
+        json=_gemini_payload("this is not json"),
+        request=httpx.Request("POST", "https://example.test/generate"),
+    )
+    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
+    with patch("app.extract.llm.httpx.post", return_value=bad) as mock_post:
+        with pytest.raises(PermanentLLMError):
+            client.extract_job(FIXTURE_JD)
+    assert mock_post.call_count == 2
+
+
+def test_gemini_llm_malformed_then_good_succeeds() -> None:
+    bad = httpx.Response(
+        200,
+        json=_gemini_payload("this is not json"),
+        request=httpx.Request("POST", "https://example.test/generate"),
+    )
+    good = httpx.Response(
+        200,
+        json=_gemini_payload(SAMPLE_EXTRACTION.model_dump_json()),
+        request=httpx.Request("POST", "https://example.test/generate"),
+    )
+    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
+    with patch("app.extract.llm.httpx.post", side_effect=[bad, good]) as mock_post:
+        extraction, usage = client.extract_job(FIXTURE_JD)
+    assert mock_post.call_count == 2
+    assert extraction.seniority == "senior"
+    assert usage.prompt_tokens == 900
+
+
 def test_gemini_embedder_enforces_768_dim() -> None:
     response = httpx.Response(
         200,
@@ -415,6 +485,52 @@ def test_retryable_llm_writes_event(db_session: Session) -> None:
     assert any(e.action == "retryable_error" for e in events)
 
 
+@requires_db
+def test_permanent_llm_failure_is_2xx_action(db_session: Session) -> None:
+    """A poison response (HTTP 400 / twice-malformed output) must not become a
+    5xx that burns spend on every redelivery."""
+    job = _insert_job(db_session, url_hash="extract-permanent")
+    llm = FakeLLM(PermanentLLMError("llm HTTP 400"))
+    result = extract_job(
+        db_session,
+        {"job_id": str(job.id)},
+        llm=llm,
+        embedder=HashingDocumentEmbedder(),
+        linker=_linker(),
+    )
+    assert result.action == "llm_permanent_failure"
+    db_session.refresh(job)
+    assert job.extracted_at is None
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+    ).all()
+    assert any(e.action == "llm_permanent_failure" for e in events)
+
+
+@requires_db
+def test_extract_requires_loaded_skills_table(db_session: Session) -> None:
+    """ESCO load is a hard prerequisite: with an empty skills table extract-job
+    refuses (retryable config error) before spending anything on the LLM."""
+    db_session.execute(delete(Skill))
+    job = _insert_job(db_session, url_hash="extract-no-esco")
+    llm = FakeLLM(SAMPLE_EXTRACTION)
+    with pytest.raises(RetryableLLMError, match="skills table is empty"):
+        extract_job(
+            db_session,
+            {"job_id": str(job.id)},
+            llm=llm,
+            embedder=HashingDocumentEmbedder(),
+            linker=None,
+        )
+    assert llm.calls == 0  # checked before any LLM spend
+    db_session.refresh(job)
+    assert job.extracted_at is None
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+    ).all()
+    assert any(e.action == "skills_taxonomy_missing" for e in events)
+
+
 def _committed_job(**overrides: object) -> Job:
     """Insert a job on its own connection so the HTTP handler can see it."""
     engine = get_engine()
@@ -497,3 +613,43 @@ def test_missing_job_is_not_found(db_session: Session) -> None:
         select(PipelineEvent).where(PipelineEvent.stage == "extract-job")
     ).all()
     assert any(e.action == "not_found" and e.job_id is None for e in events)
+
+
+def _delete_extract_payload_events() -> None:
+    engine = get_engine()
+    with Session(engine) as session:
+        session.execute(
+            delete(PipelineEvent).where(
+                PipelineEvent.stage == "extract-job",
+                PipelineEvent.action.in_(["missing_job_id", "invalid_job_id"]),
+            )
+        )
+        session.commit()
+
+
+@requires_db
+def test_extract_http_malformed_payload_writes_event(apply_migrations: None) -> None:
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    application = create_app(
+        settings=settings,
+        queue=LocalTaskQueue("http://127.0.0.1:9"),
+    )
+    try:
+        with TestClient(application) as client:
+            missing = client.post("/handlers/extract-job", json={})
+            invalid = client.post("/handlers/extract-job", json={"job_id": "not-a-uuid"})
+        assert missing.status_code == 200
+        assert missing.json()["action"] == "missing_job_id"
+        assert invalid.status_code == 200
+        assert invalid.json()["action"] == "invalid_job_id"
+        engine = get_engine()
+        with Session(engine) as session:
+            actions = set(
+                session.scalars(
+                    select(PipelineEvent.action).where(PipelineEvent.stage == "extract-job")
+                ).all()
+            )
+        assert "missing_job_id" in actions
+        assert "invalid_job_id" in actions
+    finally:
+        _delete_extract_payload_events()

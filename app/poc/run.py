@@ -17,7 +17,7 @@ import httpx
 from sqlalchemy import func, select, update
 
 from app.config import Settings, get_settings
-from app.db.models import Generation, Job, Match, PipelineEvent, User
+from app.db.models import Generation, Job, Match, PipelineEvent, Skill, User
 from app.db.session import db_session
 from app.evals.runner import run_evals
 from app.poc.measure import collect_measurements
@@ -25,6 +25,7 @@ from app.poc.report import write_poc_results
 from app.profile.deps import build_profile_deps
 from app.profile.service import edit_profile, ingest_profile
 from app.profile.text import read_resume_file
+from app.seed import DEFAULT_CONFIG as DEFAULT_SEED_CONFIG
 from app.seed import seed as seed_corpus
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,9 @@ def run_poc(
     seed_summary = {"skipped": True}
     if not skip_seed:
         logger.info("poc seed target=%s", target)
-        seed_summary = seed_corpus(config_path=seed_config, target=target)
+        seed_summary = seed_corpus(
+            config_path=seed_config or DEFAULT_SEED_CONFIG, target=target
+        )
         notes.append(
             f"Seed: ingested={seed_summary.get('ingested')} "
             f"total={seed_summary.get('jobs_total')} "
@@ -108,6 +111,14 @@ def run_poc(
 
     cycles: list[dict[str, Any]] = []
     if live:
+        # ESCO is a hard prerequisite for extract-job: fail fast here instead
+        # of letting every extract 503 until the wait deadline.
+        with db_session() as session:
+            if session.scalar(select(Skill.id).limit(1)) is None:
+                raise RuntimeError(
+                    "skills table is empty — load the ESCO taxonomy first "
+                    "(python -m scripts.load_esco) before a live poc run"
+                )
         url = (base_url or settings.local_queue_base_url).rstrip("/")
         _ensure_server(url)
         cycles = _run_match_cycles(url, wait_seconds=wait_seconds)
@@ -206,18 +217,21 @@ def _run_match_cycles(
     cycles: list[dict[str, Any]] = []
     deadline = time.time() + wait_seconds
 
+    # Cycle 1 is dirty (full-corpus scan for the just-ingested profile; clears
+    # rematch_needed). Follow-up cycles must be incremental: they match jobs
+    # extracted since the last completed cycle — dirty would select no users.
     first = _post_match(base_url, mode="dirty")
     cycles.append(first)
     extracts = int(first.get("extracts_enqueued") or 0)
     logger.info("poc cycle=1 extracts_enqueued=%s", extracts)
     if extracts:
         _wait_extracts(extracts, deadline)
-        second = _post_match(base_url, mode="dirty")
+        second = _post_match(base_url, mode="incremental")
         cycles.append(second)
         extracts = int(second.get("extracts_enqueued") or 0)
         if extracts:
             _wait_extracts(extracts, deadline)
-            third = _post_match(base_url, mode="dirty")
+            third = _post_match(base_url, mode="incremental")
             cycles.append(third)
 
     screens = 0

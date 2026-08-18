@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.ats.base import PermanentIngestError
 from app.ats.http_util import http_get_json
-from app.db.models import PipelineEvent
+from app.db.models import Job, PipelineEvent
 from app.ingest.store import ingest_posting
 from tests.conftest import requires_db
 
@@ -126,6 +127,10 @@ def test_ingest_success_writes_job_and_event(db_session: Session) -> None:
     assert result.job_id is not None
     assert result.url_hash
 
+    job = db_session.get(Job, uuid.UUID(result.job_id))
+    assert job is not None
+    first_ingested_at = job.ingested_at
+
     # Re-ingest same URL is an upsert (still action=ingested), not a new failure.
     again = ingest_posting(
         db_session,
@@ -138,3 +143,12 @@ def test_ingest_success_writes_job_and_event(db_session: Session) -> None:
     )
     assert again.action == "ingested"
     assert again.job_id == result.job_id
+
+    # Redelivery refreshes metadata but must not refresh ingested_at — a
+    # re-seen posting would otherwise look new to the incremental match cycle
+    # and re-drive extract → match → screen → generate for every user.
+    db_session.expire_all()
+    job = db_session.get(Job, uuid.UUID(result.job_id))
+    assert job is not None
+    assert job.title == "Backend Engineer II"
+    assert job.ingested_at == first_ingested_at

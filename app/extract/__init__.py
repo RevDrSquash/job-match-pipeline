@@ -1,30 +1,7 @@
-"""extract-job: structured LLM extraction, skill linking, synth doc, embedding."""
+"""extract-job: structured LLM extraction, skill linking, synth doc, embedding.
 
-from app.extract.embed import DocumentEmbedder, EmbeddingResult, HashingDocumentEmbedder
-from app.extract.llm import (
-    JobExtraction,
-    JobLLM,
-    LLMUsage,
-    RetryableLLMError,
-)
-from app.extract.service import ExtractResult, extract_job
-from app.extract.synthesize import (
-    SYNTH_DOC_MAX_TOKENS,
-    build_synthesized_doc,
-    estimate_tokens,
-)
-
-__all__ = [
-    "SYNTH_DOC_MAX_TOKENS",
-    "DocumentEmbedder",
-    "EmbeddingResult",
-    "ExtractResult",
-    "HashingDocumentEmbedder",
-    "JobExtraction",
-    "JobLLM",
-    "LLMUsage",
-    "RetryableLLMError",
-    "build_synthesized_doc",
-    "estimate_tokens",
-    "extract_job",
-]
+No package-level re-exports: ``embed`` and ``service`` import ``app.skills``,
+which imports ``app.extract.llm`` back — eager imports here made any cold
+``import app.skills`` fail with a circular-import error. Import the submodule
+you need (``app.extract.llm``, ``app.extract.embed``, ...) directly.
+"""

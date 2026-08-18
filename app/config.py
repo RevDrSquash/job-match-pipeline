@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     embedding_provider: str = "hashing"
     embedding_model: str = "gemini-embedding-001"
     embedding_usd_per_mtok: float = 0.15
+    # Skill-span similarity fallback. None = per-provider default
+    # (hashing: 0.72 / 0.72 / 0; gemini: 0.90 / 0.85 / 0.05, calibrated via
+    # scripts/calibrate_link_threshold.py — see app/skills/linker.py).
+    # Explicit values override both providers.
+    skill_link_high_confidence: float | None = None
+    skill_link_threshold: float | None = None
+    skill_link_margin: float | None = None
 
     # Profile parse (CLI). Resume text IS personal information — ZDR vendor
     # terms are a production blocker (docs/PRIVACY_AND_COMPLIANCE.md).
@@ -81,7 +88,7 @@ class Settings(BaseSettings):
     # generate-resume: best-available Gemini. Resume text IS personal
     # information — ZDR/no-training terms are a production blocker.
     # Model name lives here, never at call sites.
-    generation_model: str = "gemini-3.5-pro"
+    generation_model: str = "gemini-3.1-pro-preview"
     generation_input_usd_per_mtok: float = 1.25
     generation_output_usd_per_mtok: float = 10.00
 

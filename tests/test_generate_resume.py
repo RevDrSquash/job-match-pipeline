@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, RetryableLLMError
+from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.generate.llm import GENERATION_SYSTEM_PROMPT, GeminiGenerateLLM, build_job_context
 from app.generate.schema import Claim, GeneratedResume
 from app.generate.service import generate_resume
@@ -371,6 +371,35 @@ def test_generate_retryable_writes_event(db_session: Session) -> None:
     assert any(e.action == "retryable_error" for e in events)
 
 
+@requires_db
+def test_generate_permanent_llm_failure_is_2xx_no_generation(db_session: Session) -> None:
+    """A poison generate response (400 / twice-malformed output) must not
+    become a 5xx that re-pays the frontier model on every redelivery."""
+    user = _add_user(db_session)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    queue = RecordingQueue()
+    result = generate_resume(
+        db_session,
+        {"match_id": str(match.id)},
+        queue,
+        llm=FakeGenerateLLM(PermanentLLMError("generate llm permanent failure")),
+        linker=_linker(),
+        settings=Settings(),
+    )
+    assert result.action == "llm_permanent_failure"
+    assert result.generation_id is None
+    assert queue.tasks == []  # no verify-resume for a resume that was never made
+    rows = db_session.scalars(
+        select(Generation).where(Generation.match_id == match.id)
+    ).all()
+    assert rows == []
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+    ).all()
+    assert any(e.action == "llm_permanent_failure" for e in events)
+
+
 def _committed_match() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     engine = get_engine()
     with Session(engine) as session:
@@ -427,3 +456,47 @@ def test_generate_http_success_then_noop(apply_migrations: None) -> None:
             assert second.json()["action"] == "skipped_existing"
     finally:
         _delete_gen_rows(user_id, job_id, match_id)
+
+
+def _delete_generate_payload_events() -> None:
+    engine = get_engine()
+    with Session(engine) as session:
+        session.execute(
+            delete(PipelineEvent).where(
+                PipelineEvent.stage == "generate-resume",
+                PipelineEvent.action.in_(["missing_match_id", "invalid_match_id"]),
+            )
+        )
+        session.commit()
+
+
+@requires_db
+def test_generate_http_malformed_payload_writes_event(apply_migrations: None) -> None:
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    application = create_app(
+        settings=settings,
+        queue=LocalTaskQueue("http://127.0.0.1:9"),
+    )
+    try:
+        with TestClient(application) as client:
+            missing = client.post("/handlers/generate-resume", json={})
+            invalid = client.post(
+                "/handlers/generate-resume", json={"match_id": "not-a-uuid"}
+            )
+        assert missing.status_code == 200
+        assert missing.json()["action"] == "missing_match_id"
+        assert invalid.status_code == 200
+        assert invalid.json()["action"] == "invalid_match_id"
+        engine = get_engine()
+        with Session(engine) as session:
+            actions = set(
+                session.scalars(
+                    select(PipelineEvent.action).where(
+                        PipelineEvent.stage == "generate-resume"
+                    )
+                ).all()
+            )
+        assert "missing_match_id" in actions
+        assert "invalid_match_id" in actions
+    finally:
+        _delete_generate_payload_events()

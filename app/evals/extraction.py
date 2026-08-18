@@ -11,6 +11,7 @@ from app.evals.heuristic_extract import HeuristicJobLLM, extract_jd_fields
 from app.evals.metrics import accuracy, match_requirement_lists, precision_recall, texts_match
 from app.evals.paths import read_json, resolve_labeled_path
 from app.evals.report import SuiteResult
+from app.evals.retry import call_with_retry
 from app.extract.llm import JobExtraction, JobLLM, LLMUsage
 from app.skills.linker import SkillLinker
 
@@ -128,7 +129,10 @@ def _predict(
     linker: SkillLinker,
 ) -> tuple[JobExtraction, LLMUsage, dict[str, Any]]:
     title_hint = item.get("title") if isinstance(item.get("title"), str) else None
-    extraction, usage = predictor.extract_job(raw_jd, title=title_hint)
+    extraction, usage = call_with_retry(
+        lambda: predictor.extract_job(raw_jd, title=title_hint),
+        label="extraction predict",
+    )
     # Title and location are ATS-side in extract-job; the eval still scores
     # them from the JD text so labeled files do not need a live ingest row.
     title, extra = extract_jd_fields(raw_jd, fallback_title=title_hint, linker=linker)

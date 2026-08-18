@@ -16,6 +16,7 @@ from app.config import Settings, get_settings
 from app.extract.llm import (
     DEFAULT_GEMINI_API_BASE,
     LLMUsage,
+    PermanentLLMError,
     RetryableLLMError,
     gemini_generate_json,
 )
@@ -64,12 +65,13 @@ class GateDecision(BaseModel):
     def normalized(self) -> GateDecision:
         verdict = (self.verdict or "").strip().lower()
         if verdict not in {"pass", "reject"}:
-            raise RetryableLLMError("gate llm invalid verdict")
+            # temperature=0 + enforced schema: a bad verdict is deterministic.
+            raise PermanentLLMError("gate llm invalid verdict")
         reason = (self.reason or "").strip()
         try:
             confidence = float(self.confidence)
-        except (TypeError, ValueError) as exc:
-            raise RetryableLLMError("gate llm invalid confidence") from exc
+        except (TypeError, ValueError):
+            raise PermanentLLMError("gate llm invalid confidence") from None
         confidence = min(1.0, max(0.0, confidence))
         return GateDecision(verdict=verdict, reason=reason, confidence=confidence)
 
@@ -141,15 +143,17 @@ class GeminiGateLLM:
                 output_usd_per_mtok=self._output_usd_per_mtok,
                 timeout=self._timeout,
             )
+        # Drop upstream args — generate_json errors can echo completion text.
+        except PermanentLLMError:
+            raise PermanentLLMError("gate llm permanent failure") from None
         except RetryableLLMError:
-            # Drop upstream args — generate_json errors can echo completion text.
             raise RetryableLLMError("gate llm retryable failure") from None
         try:
             decision = GateDecision.model_validate(data).normalized()
-        except RetryableLLMError:
-            raise RetryableLLMError("gate llm invalid structured output") from None
+        except PermanentLLMError:
+            raise PermanentLLMError("gate llm invalid structured output") from None
         except Exception:
-            raise RetryableLLMError("gate llm invalid structured output") from None
+            raise PermanentLLMError("gate llm invalid structured output") from None
         return decision, usage
 
 

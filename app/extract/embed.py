@@ -10,7 +10,11 @@ from typing import Protocol, runtime_checkable
 import httpx
 
 from app.db.models import EMBEDDING_DIM
-from app.extract.llm import DEFAULT_GEMINI_API_BASE, RetryableLLMError
+from app.extract.llm import (
+    DEFAULT_GEMINI_API_BASE,
+    RetryableLLMError,
+    classify_llm_status,
+)
 from app.extract.synthesize import estimate_tokens
 from app.skills.embeddings import HashingEmbedder
 
@@ -134,10 +138,7 @@ class GeminiDocumentEmbedder:
         except httpx.HTTPError as exc:
             raise RetryableLLMError(f"embed transport error: {type(exc).__name__}") from exc
 
-        if response.status_code in {429, 500, 502, 503, 504} or response.status_code >= 500:
-            raise RetryableLLMError(f"embed HTTP {response.status_code}")
-        if response.status_code >= 400:
-            raise RetryableLLMError(f"embed HTTP {response.status_code}")
+        classify_llm_status(response.status_code, provider="embed")
 
         try:
             body = response.json()

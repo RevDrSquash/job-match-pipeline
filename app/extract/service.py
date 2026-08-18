@@ -18,14 +18,14 @@ from app.extract.embed import DocumentEmbedder, log_embedding_usage
 from app.extract.llm import (
     MIN_RAW_JD_CHARS,
     JobLLM,
+    PermanentLLMError,
     RetryableLLMError,
     log_llm_usage,
 )
 from app.extract.synthesize import build_synthesized_doc
 from app.ingest.events import record_pipeline_event, usage_details
-from app.skills.embeddings import HashingEmbedder
+from app.skills.factory import linker_from_session
 from app.skills.linker import InMemorySkillLinker, SkillLinker
-from app.skills.repository import load_skill_records
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +84,41 @@ def extract_job(
         session.flush()
         return ExtractResult(action="unparseable", job_id=str(job.id))
 
+    # ESCO load is a hard prerequisite (checked before any LLM spend): an
+    # empty skills table would cache a permanently skill-less extraction
+    # (extracted_at never resets), silently breaking hard-req overlap and the
+    # matched/adjacent/missing buckets. Retryable config error, like a missing
+    # API key — match-batch re-enqueues on later cycles once ESCO is loaded.
+    if linker is None and not _skills_table_populated(session):
+        logger.error(
+            "extract-job skills table is empty — load ESCO first "
+            "(python -m scripts.load_esco); refusing to extract job_id=%s",
+            job.id,
+        )
+        record_pipeline_event(
+            session, stage=STAGE, action="skills_taxonomy_missing", job_id=job.id
+        )
+        session.flush()
+        raise RetryableLLMError(
+            "skills table is empty — load ESCO (scripts/load_esco.py) before extract-job"
+        )
+
     started = time.perf_counter()
     try:
         active_llm = llm if llm is not None else _build_llm(settings)
         extraction, usage = active_llm.extract_job(raw_jd, title=job.title)
+    except PermanentLLMError as exc:
+        logger.info(
+            "extract-job permanent failure action=llm_permanent_failure "
+            "job_id=%s error=%s",
+            job.id,
+            exc,
+        )
+        record_pipeline_event(
+            session, stage=STAGE, action="llm_permanent_failure", job_id=job.id
+        )
+        session.flush()
+        return ExtractResult(action="llm_permanent_failure", job_id=str(job.id))
     except RetryableLLMError:
         record_pipeline_event(session, stage=STAGE, action="retryable_error", job_id=job.id)
         session.flush()
@@ -118,7 +149,7 @@ def extract_job(
             cost_usd=usage.cost_usd,
         )
 
-    active_linker = linker or _linker_from_session(session)
+    active_linker = linker or _linker_from_session(session, settings)
     skill_ids = active_linker.link_spans(list(extraction.skill_spans))
     skill_labels = _skill_labels(session, active_linker, skill_ids)
 
@@ -138,6 +169,24 @@ def extract_job(
     try:
         active_embedder = embedder if embedder is not None else _build_embedder(settings)
         embedding = active_embedder.embed_document(synthesized_doc)
+    except PermanentLLMError as exc:
+        logger.info(
+            "extract-job permanent failure action=llm_permanent_failure "
+            "job_id=%s error=%s",
+            job.id,
+            exc,
+        )
+        record_pipeline_event(
+            session, stage=STAGE, action="llm_permanent_failure", job_id=job.id
+        )
+        session.flush()
+        return ExtractResult(
+            action="llm_permanent_failure",
+            job_id=str(job.id),
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
+        )
     except RetryableLLMError:
         record_pipeline_event(session, stage=STAGE, action="retryable_error", job_id=job.id)
         session.flush()
@@ -227,11 +276,17 @@ def _build_embedder(settings: Settings | None) -> DocumentEmbedder:
     return build_document_embedder(settings)
 
 
-def _linker_from_session(session: Session) -> InMemorySkillLinker:
-    records = load_skill_records(session)
-    return InMemorySkillLinker(
-        records,
-        embedder=HashingEmbedder(),
+def _skills_table_populated(session: Session) -> bool:
+    return session.scalar(select(Skill.id).limit(1)) is not None
+
+
+def _linker_from_session(
+    session: Session, settings: Settings | None = None
+) -> InMemorySkillLinker:
+    return linker_from_session(
+        session,
+        settings,
+        allow_seed=False,
         build_missing_embeddings=False,
     )
 

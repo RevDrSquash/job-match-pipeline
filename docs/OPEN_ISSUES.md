@@ -34,6 +34,8 @@ warns (and can refuse with `--require-gemini-embeddings`) when
 
 The Queues table in Tasks and Handlers lists five queues but both Scheduler-triggered handlers (`fetch-link-list`, `match-batch`) are absent. Presumably Cloud Scheduler invokes them directly over HTTP (OIDC) without a queue in between, but this is never stated. Irrelevant locally (the local `TaskQueue` posts to handlers directly); decide and document before the Terraform work.
 
+**Deterministic task names (deferred).** Docs used to describe named-task redelivery-dedup as current behavior. Neither `LocalTaskQueue` nor `CloudTasksQueue` sets a task name; correctness rests on handler idempotency (`extracted_at IS NULL`, `skipped_screened`, `skipped_existing`) plus in-process `job_id` dedup in `match-batch`. Named tasks are a cost optimization, not a correctness requirement. Before Terraform: add an optional `dedup_key` to `TaskQueue.enqueue`, set `task.name` from it in `CloudTasksQueue`, no-op locally.
+
 ## 4. Schema sketch is not migration-ready
 
 **Resolved in DEF-16.** The initial Alembic migration adds primary keys on `matches`, `generations`, and `pipeline_events`; moves work-history provenance (`source: parsed | user_asserted`) inside each `work_history` JSONB entry on `user_profiles`; and keeps `pipeline_events.user_id` as a nullable column with no FK so user linkage can be stripped on anonymization.
@@ -54,7 +56,34 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
 
 * **Embedding model** — docs fix the dimension (768) but not the model.
   **Skill-span linking:** deterministic feature-hashing embedder in
-  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d).
+  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d) is the offline
+  default. Live taxonomy backfill (`scripts/load_esco.py
+  --embedding-provider gemini`, defaulting to `EMBEDDING_PROVIDER`) uses
+  `GeminiSpanEmbedder`: `gemini-embedding-001` via `batchEmbedContents`,
+  `taskType=SEMANTIC_SIMILARITY` (symmetric span↔label — not the document
+  embedder's `RETRIEVAL_DOCUMENT`), Matryoshka-truncated to 768 and
+  L2-normalized. Stored rows record `skills.embedding_model` so a
+  an   interrupted backfill can skip already-embedded concepts. Runtime linker
+  builders (`app/skills/factory.py`, used by profile ingest / extract-job /
+  generate / verify) pick the span embedder from `EMBEDDING_PROVIDER` and
+  trust stored vectors only when `skills.embedding_model` matches; a
+  mismatch falls back to in-memory hashing so tests and offline runs stay
+  on the hashing space. Similarity uses a two-tier rule: link when
+  `best >= high_confidence` regardless of margin, otherwise require
+  `best >= threshold` and `best - second >= margin`. Hashing defaults
+  stay `0.72 / 0.72 / 0` (back-compat). Gemini defaults are **measured**
+  (2026-08-18, `scripts/calibrate_link_threshold.py --provider gemini`
+  over the skill_linking eval labels plus
+  `evals/sets/v1/skill_linking/calibration_spans.json` negatives):
+  `high_confidence 0.90 / threshold 0.85 / margin 0.05`. The
+  `gemini-embedding-001` SEMANTIC_SIMILARITY score space is compressed —
+  true paraphrase positives scored 0.867–0.958 (median 0.921) while
+  must-refuse spans (generic terms over sibling-dense neighborhoods:
+  "relational databases", "a modern JavaScript framework") reached 0.896
+  with margins ≤ 0.043 — so the cutoffs sit on a narrow ledge; re-run the
+  calibration script whenever the embedding model or the taxonomy changes.
+  Override via `SKILL_LINK_HIGH_CONFIDENCE` / `SKILL_LINK_THRESHOLD` /
+  `SKILL_LINK_MARGIN`.
   **Job/profile documents (DEF-20, updated 2026-08):** Google
   `gemini-embedding-001` Matryoshka-truncated to 768
   (`outputDimensionality=768`, L2-normalized client-side because reduced-dim
@@ -80,7 +109,12 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
   the named alternative. The profile CLI and tests fall back to a small
   in-repo seed (`app/skills/taxonomy.py`, `esco:<slug>` placeholder IDs, pure
   data) when the `skills` table is empty; swapping the seed for the loaded
-  ESCO CSV is a data change, not a call-site change.
+  ESCO CSV is a data change, not a call-site change. **`extract-job` does not
+  get the seed fallback:** a loaded `skills` table is a hard prerequisite — an
+  empty table is a retryable config error checked before the LLM call
+  (`TASKS_AND_HANDLERS.md`, extract-job), because extraction results are
+  cached permanently and would otherwise be skill-less forever. The
+  `jobmatch poc run` live path fails fast on the same check.
 * **Migration tooling** — docs say "schema migration" without naming a tool; Alembic is the default for a FastAPI/Postgres stack.
 
 ## 7. Profile ingest LLM/embedding choices (PoC)
@@ -91,14 +125,41 @@ Where profile ingest landed after the merge:
 
 * **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality. `gemini-embedding-001` caps input at 2,048 tokens and truncates silently, so the synthesized profile doc is trimmed to that budget (oldest roles' bullets dropped first; job docs already cap at 500) and the embedder logs an error if an over-cap doc ever slips through.
 * **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-3.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
-* **Skill linking:** the shared `app/skills` linker over the `skills` table, with the in-repo seed fallback described in §6.
+* **Skill linking:** the shared `app/skills` linker over the `skills` table (provider-aware builder in `app/skills/factory.py`; see §6), with the in-repo seed fallback described in §6.
 
 ## 8. generate-resume / verify-resume model split (DEF-23)
 
 Docs require a **different model family** for verify stages 2–3 than the generator. The repo was Gemini-only; the PoC split is:
 
-* **Generator:** `GENERATION_MODEL` default `gemini-3.5-pro` (same `LLM_API_KEY` / `LLM_API_BASE` as extract/profile). Best-available Gemini in the 3.5 family already used elsewhere; ZDR/no-training terms are a production blocker (privacy doc). Work-history prompt caching uses Gemini `cachedContents` when the prefix is long enough, otherwise an implicit identical prefix.
+* **Generator:** `GENERATION_MODEL` default `gemini-3.1-pro-preview` (same `LLM_API_KEY` / `LLM_API_BASE` as extract/profile). Best-available Gemini pro tier the API actually serves — `gemini-3.5-pro` does not exist as of Aug 2026 (the 3.5 family tops out at flash). Note: free-tier API keys have zero quota for pro-tier models (429 `limit: 0`) and `gemini-2.5-pro` is closed to new users (404); on a free-tier key set `GENERATION_MODEL=gemini-3.5-flash`, the best model such keys can call. Free-tier `gemini-3.5-flash` is capped at 20 generate requests (metric `generate_content_free_tier_requests`, observed Aug 2026) — one fabrication-suite run costs 5, so budget roughly two full eval runs plus one small pipeline drain per day, or use a paid key for measurement runs. Generation pricing config (`generation_*_usd_per_mtok`) reflects pro-tier list prices and overstates flash costs. ZDR/no-training terms are a production blocker (privacy doc). Work-history prompt caching uses Gemini `cachedContents` when the prefix is long enough, otherwise an implicit identical prefix.
 * **Verifier:** `VERIFY_MODEL` default `claude-sonnet-4-5` (`VERIFY_API_KEY` or `ANTHROPIC_API_KEY`, `VERIFY_API_BASE`). Anthropic is a different family, which is the load-bearing requirement. ZDR paperwork is equally deferred — do not send real resumes until those terms exist.
 * Token/cost rates live in `app/config.py` and are logged on every call (`OPEN_ISSUES.md` §1). Defaults are list-price placeholders, not measured.
 
 Self-verification within Gemini is intentionally not offered as a fallback: a missing Anthropic key is a retryable config error, not a silent downgrade to the generator family.
+
+## 9. ESCO hierarchy / subsumption-aware skill buckets (deferred follow-up)
+
+Generic↔specific skill matching is not implemented: a JD asking for
+"relational databases" is satisfied by PostgreSQL on a profile, but not vice
+versa. Doing this properly needs the ESCO broader/narrower relations loaded
+(the current loader takes only the flat skill concepts) and a subsumption rule
+in the `skill_buckets` logic: a job skill counts as matched when the profile
+holds it **or a descendant**; the converse direction (profile generic, job
+specific) is adjacent at best. Until then, generic-vs-specific pairs land in
+the **missing** bucket — conservative and fabrication-safe, but it understates
+matches.
+
+Two invariants make the future layer possible; keep them:
+
+* The linker must canonicalize generic spans to **generic concepts, never to a
+  specific product** — the calibrated margin rule enforces this by refusing
+  near-tied sibling neighborhoods (MySQL vs PostgreSQL for an ambiguous span),
+  and `calibration_spans.json` pins it with `skill_id: null` negatives.
+* Docker / Kubernetes / Terraform and similar tools have **no ESCO concept at
+  all** (checked against the 2026 skills pillar); they stay unlinked until a
+  taxonomy supplement is designed. That is documented behavior, not a linking
+  regression.
+
+## 10. User deletion / anonymization path is unimplemented
+
+`docs/PRIVACY_AND_COMPLIANCE.md` ("Deletion — design for it now") requires a cascade that strips or deletes user-side rows, including `pipeline_events` linkage. The schema is ready — `pipeline_events.user_id` is nullable with no FK (DEF-16, §4) so anonymization can null the column without deleting the training row — but there is no delete or anonymize path in the app. Fine for the local PoC (no real user data). A working path is required before any real resume is stored.

@@ -47,6 +47,7 @@ def _add_user(
     skill_ids: list[str] | None = None,
     embedding: list[float] | None = None,
     comp_floor: int | None = 100_000,
+    seniority_band: str | None = None,
 ) -> User:
     user = User(tier="free", quota_remaining=10)
     session.add(user)
@@ -72,6 +73,7 @@ def _add_user(
             title_families=(
                 title_families if title_families is not None else ["Backend Engineering"]
             ),
+            seniority_band=seniority_band,
         )
     )
     session.flush()
@@ -91,6 +93,7 @@ def _add_job(
     ingested_at: datetime | None = None,
     extracted_at: datetime | None = None,
     url_hash: str | None = None,
+    seniority: str | None = None,
 ) -> Job:
     now = datetime.now(tz=UTC)
     job = Job(
@@ -104,6 +107,7 @@ def _add_job(
         skill_ids=skill_ids if extracted else None,
         synthesized_doc="Title: Backend Engineer\nSkills: Python" if extracted else None,
         embedding=embedding if extracted else None,
+        seniority=seniority,
     )
     if extracted and job.skill_ids is None:
         job.skill_ids = ["esco:python", "esco:terraform"]
@@ -362,6 +366,44 @@ def test_same_cycle_at_is_idempotent(db_session: Session) -> None:
     assert len(db_session.scalars(select(Match).where(Match.user_id == user.id)).all()) == 1
     screens = [name for name, _ in queue.tasks if name == "screen-job"]
     assert len(screens) == 1
+
+
+@requires_db
+def test_seniority_band_match_mismatch_and_null_passthrough(db_session: Session) -> None:
+    location = _unique_location()
+    user = _add_user(
+        db_session, locations=[location], seniority_band="mid,senior,staff"
+    )
+    match_job = _add_job(
+        db_session, extracted=True, location=location, seniority="senior"
+    )
+    miss_job = _add_job(
+        db_session, extracted=True, location=location, seniority="junior"
+    )
+    null_job = _add_job(db_session, extracted=True, location=location, seniority=None)
+    unextracted = _add_job(db_session, extracted=False, location=location)
+
+    result = match_batch(
+        db_session,
+        {
+            "mode": "incremental",
+            "since": SINCE_EPOCH,
+            "cycle_at": "2026-08-17T17:00:00+00:00",
+            "user_ids": [str(user.id)],
+        },
+        RecordingQueue(),
+        settings=Settings(),
+    )
+    assert result.action == "completed"
+    matched_ids = set(
+        db_session.scalars(select(Match.job_id).where(Match.user_id == user.id)).all()
+    )
+    assert match_job.id in matched_ids
+    assert miss_job.id not in matched_ids
+    assert null_job.id in matched_ids
+    assert unextracted.id not in matched_ids
+    assert result.extracts_enqueued == 1
+    assert result.deferred_unextracted == 1
 
 
 @requires_db

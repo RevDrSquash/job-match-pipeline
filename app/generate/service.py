@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import Generation, Job, Match, User, UserProfile
-from app.extract.llm import RetryableLLMError
+from app.extract.llm import PermanentLLMError, RetryableLLMError
 from app.generate.buckets import (
     assemble_skill_buckets,
     job_terminology_text,
@@ -123,7 +123,7 @@ def generate_resume(
         attempt=attempt,
     )
 
-    active_linker = linker if linker is not None else build_skill_linker(session)
+    active_linker = linker if linker is not None else build_skill_linker(session, settings)
     work_history = list(profile.work_history or [])
     cache_prefix = render_work_history_block(work_history)
     buckets = assemble_skill_buckets(
@@ -154,6 +154,22 @@ def generate_resume(
             violations=violations or None,
         )
         latency_ms = (time.perf_counter() - started) * 1000
+    except PermanentLLMError as exc:
+        logger.info(
+            "generate-resume permanent failure action=llm_permanent_failure "
+            "match_id=%s error=%s",
+            match.id,
+            exc,
+        )
+        record_pipeline_event(
+            session,
+            stage=STAGE,
+            action="llm_permanent_failure",
+            user_id=match.user_id,
+            job_id=match.job_id,
+        )
+        session.flush()
+        return GenerateResult(action="llm_permanent_failure", match_id=str(match.id))
     except RetryableLLMError:
         record_pipeline_event(
             session,

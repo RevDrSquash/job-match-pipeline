@@ -12,45 +12,30 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from app.skills.embeddings import Embedder, HashingEmbedder, cosine_similarity
+from app.skills.enrich import AMBIGUOUS_SCAN_TERMS, derived_alias_index
 from app.skills.normalize import normalize_label
 
-# Conservative default: hashing embedder scores are not calibrated like a
-# trained model; require a strong match and otherwise refuse to link.
+# Conservative hashing defaults: scores are not calibrated like a trained
+# model; require a strong match and otherwise refuse to link. Margin 0 keeps
+# the historical "best >= threshold" rule so existing tests stay put.
 DEFAULT_SIMILARITY_THRESHOLD = 0.72
+DEFAULT_HIGH_CONFIDENCE = 0.72
+DEFAULT_MARGIN = 0.0
 
-# Terms too ambiguous to match as whole-word hits when scanning free text
-# (fine for explicit spans, dangerous inside prose).
-_AMBIGUOUS_SCAN_TERMS = frozenset(
-    {
-        "c",
-        "r",
-        "go",
-        "js",
-        "ts",
-        "ml",
-        "tf",
-        "pg",
-        "rest",
-        "node",
-        "spark",
-        "rails",
-        "spring",
-        "express",
-        "lambda",
-        "s3",
-        "ec2",
-        "rds",
-        "git",
-        "excel",
-        "docs",
-        "shell",
-        "unix",
-        "mongo",
-        "torch",
-        "scrum",
-        "kanban",
-    }
-)
+# Gemini cutoffs measured 2026-08-18 via
+# `scripts/calibrate_link_threshold.py --provider gemini` (OPEN_ISSUES §6).
+# gemini-embedding-001 SEMANTIC_SIMILARITY scores are compressed: true-best
+# paraphrase positives scored 0.867–0.958 (median 0.921) while must-refuse
+# spans (generic terms over sibling-dense neighborhoods) reached 0.896 with
+# margins <= 0.043. The high tier sits just above the strongest negative,
+# the threshold just below the weakest true positive, and the margin above
+# the widest negative margin — 12/15 fallback positives linked, zero false
+# links on the labeled set. High-confidence links ignore margin so dense
+# neighborhoods cannot suppress a clear paraphrase; below that, a
+# sibling-margin is required.
+GEMINI_SIMILARITY_THRESHOLD = 0.85
+GEMINI_HIGH_CONFIDENCE = 0.90
+GEMINI_MARGIN = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +47,7 @@ class SkillRecord:
     alt_labels: tuple[str, ...] = ()
     description: str | None = None
     embedding: tuple[float, ...] | None = None
+    embedding_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +64,8 @@ class _IndexedTaxonomy:
     exact_index: dict[str, str]
     embedder: Embedder | None
     threshold: float
+    high_confidence: float
+    margin: float
     # Lazily filled when an embedder is present.
     vectors: dict[str, list[float]] = field(default_factory=dict)
 
@@ -112,6 +100,8 @@ class InMemorySkillLinker:
         *,
         embedder: Embedder | None = None,
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+        high_confidence: float | None = None,
+        margin: float = DEFAULT_MARGIN,
         build_missing_embeddings: bool = True,
     ) -> None:
         record_map: dict[str, SkillRecord] = {}
@@ -132,19 +122,29 @@ class InMemorySkillLinker:
             exact_index=exact,
             embedder=embedder,
             threshold=similarity_threshold,
+            high_confidence=(
+                high_confidence if high_confidence is not None else similarity_threshold
+            ),
+            margin=margin,
         )
-        # Longest-first so multiword phrases win over terms nested inside them.
+        # Scan terms use real labels only. Derived parenthetical aliases
+        # (``Python`` from ``Python (computer programming)``) feed
+        # ``link_spans`` but must not widen free-prose ``scan_text``.
         self._scan_terms: list[tuple[str, str]] = sorted(
             (
                 (key, skill_id)
                 for key, skill_id in exact.items()
-                if len(key) > 2 and key not in _AMBIGUOUS_SCAN_TERMS
+                if len(key) > 2 and key not in AMBIGUOUS_SCAN_TERMS
             ),
             key=lambda item: len(item[0]),
             reverse=True,
         )
-        if embedder is not None and build_missing_embeddings:
-            self._ensure_vectors()
+        exact.update(derived_alias_index(record_map.values(), occupied=exact))
+        if embedder is not None:
+            # Always adopt stored vectors so a DB-backed linker can trust
+            # precomputed embeddings without re-embedding 14k labels. Missing
+            # vectors are filled only when requested (hashing / seed paths).
+            self._ensure_vectors(build_missing=build_missing_embeddings)
 
     @classmethod
     def from_records(
@@ -153,11 +153,15 @@ class InMemorySkillLinker:
         *,
         embedder: Embedder | None = None,
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+        high_confidence: float | None = None,
+        margin: float = DEFAULT_MARGIN,
     ) -> InMemorySkillLinker:
         return cls(
             records,
             embedder=embedder,
             similarity_threshold=similarity_threshold,
+            high_confidence=high_confidence,
+            margin=margin,
         )
 
     def link_spans(self, spans: list[str]) -> list[str]:
@@ -215,15 +219,33 @@ class InMemorySkillLinker:
 
         query = embedder.embed([span])[0]
         best_id: str | None = None
-        best_score = self._index.threshold
+        best_score = float("-inf")
+        second_score = float("-inf")
         for skill_id, vector in self._index.vectors.items():
             score = cosine_similarity(query, vector)
             if score > best_score:
+                second_score = best_score
                 best_score = score
                 best_id = skill_id
-        return best_id
+            elif score > second_score:
+                second_score = score
 
-    def _ensure_vectors(self) -> None:
+        if best_id is None:
+            return None
+        # Two-tier: a clearly-correct paraphrase wins even in a dense
+        # neighborhood; otherwise require threshold + margin over the
+        # next-best distinct concept so near-tied siblings (MySQL vs
+        # PostgreSQL) stay unlinked rather than speculated.
+        if best_score >= self._index.high_confidence:
+            return best_id
+        if (
+            best_score >= self._index.threshold
+            and (best_score - second_score) >= self._index.margin
+        ):
+            return best_id
+        return None
+
+    def _ensure_vectors(self, *, build_missing: bool = True) -> None:
         embedder = self._index.embedder
         if embedder is None:
             return
@@ -233,6 +255,8 @@ class InMemorySkillLinker:
         for skill_id, record in self._index.records.items():
             if record.embedding is not None:
                 self._index.vectors[skill_id] = list(record.embedding)
+                continue
+            if not build_missing:
                 continue
             missing_ids.append(skill_id)
             missing_texts.append(skill_embedding_text(record))

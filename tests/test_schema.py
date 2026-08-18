@@ -115,15 +115,16 @@ def test_url_hash_upsert(db_session: Session) -> None:
     )
     db_session.flush()
 
+    # Mirrors app/ingest/store.py: metadata is refreshed on conflict but
+    # ingested_at is not, so redelivery never looks like a new posting.
     updated = db_session.execute(
         text(
             """
             INSERT INTO jobs (url_hash, title, ingested_at)
             VALUES (:url_hash, :title, :ingested_at)
             ON CONFLICT (url_hash) DO UPDATE
-            SET title = EXCLUDED.title,
-                ingested_at = EXCLUDED.ingested_at
-            RETURNING id, title
+            SET title = EXCLUDED.title
+            RETURNING id, title, ingested_at
             """
         ),
         {
@@ -135,6 +136,7 @@ def test_url_hash_upsert(db_session: Session) -> None:
 
     assert updated.id == job_id
     assert updated.title == "Updated title"
+    assert updated.ingested_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @requires_db
@@ -145,6 +147,7 @@ def test_skills_table_round_trip(db_session: Session) -> None:
         alt_labels=["AWS"],
         description="Cloud platform",
         embedding=_unit_vector(768, 3),
+        embedding_model="gemini-embedding-001",
     )
     db_session.add(skill)
     db_session.flush()
@@ -154,6 +157,7 @@ def test_skills_table_round_trip(db_session: Session) -> None:
     assert loaded.canonical_label == "Amazon Web Services"
     assert loaded.alt_labels == ["AWS"]
     assert list(loaded.embedding)[3] == pytest.approx(1.0)
+    assert loaded.embedding_model == "gemini-embedding-001"
 
 
 @requires_db
