@@ -123,48 +123,122 @@ def fetch_skills_from_api(
     max_skills: int | None = None,
     sleep_s: float = 0.05,
 ) -> list[dict[str, object]]:
-    """Page the public ESCO skills scheme. Low concurrency; no 4xx retries."""
+    """Page the public ESCO skills scheme. Low concurrency; no 4xx retries.
+
+    The ESCO API's ``offset`` parameter is a *page number*, not a record
+    offset: ``offset=N`` returns records ``N*limit .. N*limit+limit-1``.
+    Keep ``limit`` constant across requests so page boundaries stay aligned.
+
+    Some ESCO records are malformed server-side and make the whole page 500
+    (e.g. "More than one value found for field 'hasSkillType'"). On a 5xx we
+    re-fetch that page's records one at a time and skip only the bad ones.
+    """
     rows: list[dict[str, object]] = []
-    offset = 0
+    total: int | None = None
+    page = 0
     with httpx.Client(
         base_url=ESCO_API_BASE,
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         timeout=60.0,
     ) as client:
         while True:
-            if max_skills is not None and len(rows) >= max_skills:
-                break
-            limit = page_size
-            if max_skills is not None:
-                limit = min(page_size, max_skills - len(rows))
-            params = {
-                "isInScheme": ESCO_SKILLS_SCHEME,
-                "language": "en",
-                "limit": limit,
-                "offset": offset,
-            }
-            response = client.get("/resource/skill", params=params)
-            if response.status_code >= 400:
+            response = _get_skill_page(client, limit=page_size, offset=page)
+            if response.status_code >= 500:
+                logger.warning(
+                    "ESCO API %s on page %s (%s); re-fetching its records one at a time",
+                    response.status_code,
+                    page,
+                    response.text[:120],
+                )
+                batch, total = _fetch_page_records_individually(
+                    client,
+                    start=page * page_size,
+                    count=page_size,
+                    total=total,
+                    sleep_s=sleep_s,
+                )
+            elif response.status_code >= 400:
                 raise RuntimeError(
-                    f"ESCO API error {response.status_code} at offset={offset}: "
+                    f"ESCO API error {response.status_code} at page={page}: "
                     f"{response.text[:200]}"
                 )
-            payload = response.json()
-            embedded = payload.get("_embedded") or {}
-            batch = [_skill_from_api(embedded[item["uri"]]) for item in payload.get("concepts", [])]
-            if not batch:
-                break
+            else:
+                payload = response.json()
+                embedded = payload.get("_embedded") or {}
+                batch = [
+                    _skill_from_api(embedded[item["uri"]]) for item in payload.get("concepts", [])
+                ]
+                total = int(payload.get("total") or 0)
+                if not batch:
+                    break
             rows.extend(batch)
-            total = int(payload.get("total") or 0)
-            offset += len(batch)
-            logger.info("fetched %s / %s skills from ESCO API", min(offset, total), total)
-            if offset >= total:
+            if total is None:
+                raise RuntimeError("ESCO API total unknown after first page failed entirely")
+            logger.info("fetched %s / %s skills from ESCO API", min(len(rows), total), total)
+            if (page + 1) * page_size >= total:
                 break
+            if max_skills is not None and len(rows) >= max_skills:
+                break
+            page += 1
             if sleep_s > 0:
                 time.sleep(sleep_s)
     if max_skills is not None:
         rows = rows[:max_skills]
     return rows
+
+
+def _get_skill_page(client: httpx.Client, *, limit: int, offset: int) -> httpx.Response:
+    return client.get(
+        "/resource/skill",
+        params={
+            "isInScheme": ESCO_SKILLS_SCHEME,
+            "language": "en",
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+def _fetch_page_records_individually(
+    client: httpx.Client,
+    *,
+    start: int,
+    count: int,
+    total: int | None,
+    sleep_s: float,
+) -> tuple[list[dict[str, object]], int | None]:
+    """Fetch records ``start .. start+count-1`` with ``limit=1``, skipping 5xx.
+
+    With ``limit=1`` the page number equals the record index, so this recovers
+    every healthy record from a page whose bulk fetch 500s on one bad record.
+    """
+    rows: list[dict[str, object]] = []
+    for index in range(start, start + count):
+        if total is not None and index >= total:
+            break
+        response = _get_skill_page(client, limit=1, offset=index)
+        if response.status_code >= 500:
+            logger.warning(
+                "skipping malformed ESCO record at index %s (API %s: %s)",
+                index,
+                response.status_code,
+                response.text[:120],
+            )
+        elif response.status_code >= 400:
+            raise RuntimeError(
+                f"ESCO API error {response.status_code} at record index={index}: "
+                f"{response.text[:200]}"
+            )
+        else:
+            payload = response.json()
+            embedded = payload.get("_embedded") or {}
+            rows.extend(
+                _skill_from_api(embedded[item["uri"]]) for item in payload.get("concepts", [])
+            )
+            total = int(payload.get("total") or 0) or total
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+    return rows, total
 
 
 def _skill_from_api(resource: dict) -> dict[str, object]:
