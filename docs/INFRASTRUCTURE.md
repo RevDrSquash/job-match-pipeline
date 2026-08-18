@@ -150,7 +150,7 @@ Same container image. `QUEUE_IMPL=cloudtasks`. Different DB connection string. T
 
 **Handler timeouts.** Cloud Run's default request timeout is 5 minutes — raise it for resume generation, and ensure the Cloud Tasks dispatch deadline matches, or the queue will retry a task that is still running.
 
-**At-least-once delivery.** Duplicates are certain. Unique constraint on job URL hash; deterministic task names for dedup; idempotent handlers throughout.
+**At-least-once delivery.** Duplicates are certain. Unique constraint on job URL hash; idempotent handlers throughout. Deterministic Cloud Tasks names (hash of the natural key) are the target redelivery-dedup once Terraform lands — see `docs/OPEN_ISSUES.md` §3.
 
 **Two different auth postures on Cloud Run.** The frontend service is public by necessity; every pipeline handler must stay `--no-allow-unauthenticated`. Easy to get wrong when both live in the same Terraform module — the frontend is the *only* service with public ingress, and public endpoints need rate limiting and bot protection (see UI Design).
 

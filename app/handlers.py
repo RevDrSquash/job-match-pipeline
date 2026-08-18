@@ -167,6 +167,7 @@ def create_handlers_router(
         if raw_job_id in (None, "") or job_uuid is None:
             action = "missing_job_id" if raw_job_id in (None, "") else "invalid_job_id"
             logger.info("extract-job permanent failure action=%s", action)
+            _record_permanent_failure("extract-job", action)
             return {
                 "status": "ok",
                 "handler": "extract-job",
@@ -266,6 +267,7 @@ def create_handlers_router(
         if raw_match_id in (None, "") or match_uuid is None:
             action = "missing_match_id" if raw_match_id in (None, "") else "invalid_match_id"
             logger.info("screen-job permanent failure action=%s", action)
+            _record_permanent_failure("screen-job", action)
             return {
                 "status": "ok",
                 "handler": "screen-job",
@@ -325,6 +327,7 @@ def create_handlers_router(
         if raw_match_id in (None, "") or match_uuid is None:
             action = "missing_match_id" if raw_match_id in (None, "") else "invalid_match_id"
             logger.info("generate-resume permanent failure action=%s", action)
+            _record_permanent_failure("generate-resume", action)
             return {
                 "status": "ok",
                 "handler": "generate-resume",
@@ -388,6 +391,7 @@ def create_handlers_router(
         match_uuid = _parse_uuid_or_none(raw_match_id)
         if raw_generation_id in (None, "") and raw_match_id in (None, ""):
             logger.info("verify-resume permanent failure action=missing_generation_id")
+            _record_permanent_failure("verify-resume", "missing_generation_id")
             return {
                 "status": "ok",
                 "handler": "verify-resume",
@@ -402,6 +406,7 @@ def create_handlers_router(
             }
         if raw_generation_id not in (None, "") and generation_uuid is None:
             logger.info("verify-resume permanent failure action=invalid_generation_id")
+            _record_permanent_failure("verify-resume", "invalid_generation_id")
             return {
                 "status": "ok",
                 "handler": "verify-resume",
@@ -420,6 +425,7 @@ def create_handlers_router(
             and match_uuid is None
         ):
             logger.info("verify-resume permanent failure action=invalid_match_id")
+            _record_permanent_failure("verify-resume", "invalid_match_id")
             return {
                 "status": "ok",
                 "handler": "verify-resume",
@@ -472,6 +478,19 @@ def create_handlers_router(
         }
 
     return router
+
+
+def _record_permanent_failure(stage: str, action: str) -> None:
+    """Write a pipeline_events row for an early permanent 2xx (malformed payload).
+
+    Swallow DB errors so a poison payload cannot become a 5xx retry storm.
+    """
+    try:
+        with db_session() as session:
+            record_pipeline_event(session, stage=stage, action=action)
+            session.commit()
+    except Exception:
+        logger.exception("failed to record %s event action=%s", stage, action)
 
 
 def _optional_uuid(value: Any) -> uuid.UUID | None:

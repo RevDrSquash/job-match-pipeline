@@ -17,12 +17,18 @@ Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `ex
 
 ## Quick start (Docker)
 
+First-run sequence. Details: [Skill taxonomy](#skill-taxonomy-esco), [Seed corpus](#seed-corpus-500-postings), [Profile CLI](#profile-cli-poc).
+
 ```bash
 cp .env.example .env
 docker compose up --build
 # In another terminal (or after db is healthy):
 pip install -e '.[dev]'
 alembic upgrade head
+python -m scripts.load_esco
+python -m app.seed --target 500
+jobmatch profile ingest tests/fixtures/sample_resume.md --fallback-parser --json
+jobmatch match run --mode incremental
 ```
 
 - App: http://localhost:8080/health
@@ -31,7 +37,7 @@ alembic upgrade head
 
 Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` against the compose DB before exercising handlers that touch Postgres.
 
-Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`.
+Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`. Profile ingest and match cycles are documented under [Profile CLI](#profile-cli-poc).
 
 ### Seed corpus (~500 postings)
 
@@ -119,6 +125,8 @@ jobmatch match run --mode incremental
 jobmatch match run --mode dirty
 ```
 
+Incremental matches jobs ingested or extracted since the last completed cycle against all profiles that have a `user_filters` row. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
+
 ## Eval harness
 
 The four non-negotiable evals (`docs/EVALUATION.md`) hang off the CLI.
@@ -135,8 +143,6 @@ record the set version, per-suite latency, token counts, and estimated
 cost. Retrieval recall@K warns (or refuses with
 `--require-gemini-embeddings`) unless `EMBEDDING_PROVIDER=gemini`.
 Fabrication is a hard gate: any fabricated claim fails the suite.
-
-Incremental matches jobs ingested or extracted since the last completed cycle against all profiles. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
 
 ### Local proof of concept (DEF-25)
 

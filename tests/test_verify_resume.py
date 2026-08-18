@@ -472,3 +472,59 @@ def test_verify_http_success_then_noop(apply_migrations: None) -> None:
             assert second.json()["action"] == "skipped_verified"
     finally:
         _delete_rows(user_id, job_id, match_id)
+
+
+def _delete_verify_payload_events() -> None:
+    engine = get_engine()
+    with Session(engine) as session:
+        session.execute(
+            delete(PipelineEvent).where(
+                PipelineEvent.stage == "verify-resume",
+                PipelineEvent.action.in_(
+                    [
+                        "missing_generation_id",
+                        "invalid_generation_id",
+                        "invalid_match_id",
+                    ]
+                ),
+            )
+        )
+        session.commit()
+
+
+@requires_db
+def test_verify_http_malformed_payload_writes_event(apply_migrations: None) -> None:
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    application = create_app(
+        settings=settings,
+        queue=LocalTaskQueue("http://127.0.0.1:9"),
+    )
+    try:
+        with TestClient(application) as client:
+            missing = client.post("/handlers/verify-resume", json={})
+            invalid_gen = client.post(
+                "/handlers/verify-resume", json={"generation_id": "not-a-uuid"}
+            )
+            invalid_match = client.post(
+                "/handlers/verify-resume", json={"match_id": "not-a-uuid"}
+            )
+        assert missing.status_code == 200
+        assert missing.json()["action"] == "missing_generation_id"
+        assert invalid_gen.status_code == 200
+        assert invalid_gen.json()["action"] == "invalid_generation_id"
+        assert invalid_match.status_code == 200
+        assert invalid_match.json()["action"] == "invalid_match_id"
+        engine = get_engine()
+        with Session(engine) as session:
+            actions = set(
+                session.scalars(
+                    select(PipelineEvent.action).where(
+                        PipelineEvent.stage == "verify-resume"
+                    )
+                ).all()
+            )
+        assert "missing_generation_id" in actions
+        assert "invalid_generation_id" in actions
+        assert "invalid_match_id" in actions
+    finally:
+        _delete_verify_payload_events()

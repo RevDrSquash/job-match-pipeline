@@ -456,3 +456,47 @@ def test_generate_http_success_then_noop(apply_migrations: None) -> None:
             assert second.json()["action"] == "skipped_existing"
     finally:
         _delete_gen_rows(user_id, job_id, match_id)
+
+
+def _delete_generate_payload_events() -> None:
+    engine = get_engine()
+    with Session(engine) as session:
+        session.execute(
+            delete(PipelineEvent).where(
+                PipelineEvent.stage == "generate-resume",
+                PipelineEvent.action.in_(["missing_match_id", "invalid_match_id"]),
+            )
+        )
+        session.commit()
+
+
+@requires_db
+def test_generate_http_malformed_payload_writes_event(apply_migrations: None) -> None:
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    application = create_app(
+        settings=settings,
+        queue=LocalTaskQueue("http://127.0.0.1:9"),
+    )
+    try:
+        with TestClient(application) as client:
+            missing = client.post("/handlers/generate-resume", json={})
+            invalid = client.post(
+                "/handlers/generate-resume", json={"match_id": "not-a-uuid"}
+            )
+        assert missing.status_code == 200
+        assert missing.json()["action"] == "missing_match_id"
+        assert invalid.status_code == 200
+        assert invalid.json()["action"] == "invalid_match_id"
+        engine = get_engine()
+        with Session(engine) as session:
+            actions = set(
+                session.scalars(
+                    select(PipelineEvent.action).where(
+                        PipelineEvent.stage == "generate-resume"
+                    )
+                ).all()
+            )
+        assert "missing_match_id" in actions
+        assert "invalid_match_id" in actions
+    finally:
+        _delete_generate_payload_events()

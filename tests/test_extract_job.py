@@ -613,3 +613,43 @@ def test_missing_job_is_not_found(db_session: Session) -> None:
         select(PipelineEvent).where(PipelineEvent.stage == "extract-job")
     ).all()
     assert any(e.action == "not_found" and e.job_id is None for e in events)
+
+
+def _delete_extract_payload_events() -> None:
+    engine = get_engine()
+    with Session(engine) as session:
+        session.execute(
+            delete(PipelineEvent).where(
+                PipelineEvent.stage == "extract-job",
+                PipelineEvent.action.in_(["missing_job_id", "invalid_job_id"]),
+            )
+        )
+        session.commit()
+
+
+@requires_db
+def test_extract_http_malformed_payload_writes_event(apply_migrations: None) -> None:
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    application = create_app(
+        settings=settings,
+        queue=LocalTaskQueue("http://127.0.0.1:9"),
+    )
+    try:
+        with TestClient(application) as client:
+            missing = client.post("/handlers/extract-job", json={})
+            invalid = client.post("/handlers/extract-job", json={"job_id": "not-a-uuid"})
+        assert missing.status_code == 200
+        assert missing.json()["action"] == "missing_job_id"
+        assert invalid.status_code == 200
+        assert invalid.json()["action"] == "invalid_job_id"
+        engine = get_engine()
+        with Session(engine) as session:
+            actions = set(
+                session.scalars(
+                    select(PipelineEvent.action).where(PipelineEvent.stage == "extract-job")
+                ).all()
+            )
+        assert "missing_job_id" in actions
+        assert "invalid_job_id" in actions
+    finally:
+        _delete_extract_payload_events()

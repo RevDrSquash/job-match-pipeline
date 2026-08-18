@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -34,6 +35,7 @@ class Skill(Base):
     """
 
     __tablename__ = "skills"
+    __table_args__ = (Index("ix_skills_canonical_label", "canonical_label"),)
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     canonical_label: Mapped[str] = mapped_column(Text, nullable=False)

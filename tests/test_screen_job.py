@@ -499,3 +499,43 @@ def test_screen_http_retryable_is_503(apply_migrations: None) -> None:
         assert response.status_code == 503
     finally:
         _delete_screen_rows(user_id, job_id, match_id)
+
+
+def _delete_screen_payload_events() -> None:
+    engine = get_engine()
+    with Session(engine) as session:
+        session.execute(
+            delete(PipelineEvent).where(
+                PipelineEvent.stage == "screen-job",
+                PipelineEvent.action.in_(["missing_match_id", "invalid_match_id"]),
+            )
+        )
+        session.commit()
+
+
+@requires_db
+def test_screen_http_malformed_payload_writes_event(apply_migrations: None) -> None:
+    settings = Settings(queue_impl="local", enable_debug_capture=False)
+    application = create_app(
+        settings=settings,
+        queue=LocalTaskQueue("http://127.0.0.1:9"),
+    )
+    try:
+        with TestClient(application) as client:
+            missing = client.post("/handlers/screen-job", json={})
+            invalid = client.post("/handlers/screen-job", json={"match_id": "not-a-uuid"})
+        assert missing.status_code == 200
+        assert missing.json()["action"] == "missing_match_id"
+        assert invalid.status_code == 200
+        assert invalid.json()["action"] == "invalid_match_id"
+        engine = get_engine()
+        with Session(engine) as session:
+            actions = set(
+                session.scalars(
+                    select(PipelineEvent.action).where(PipelineEvent.stage == "screen-job")
+                ).all()
+            )
+        assert "missing_match_id" in actions
+        assert "invalid_match_id" in actions
+    finally:
+        _delete_screen_payload_events()

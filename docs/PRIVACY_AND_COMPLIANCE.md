@@ -106,6 +106,8 @@ Deletion is the requirement most likely to be painful to retrofit. A user deleti
 
 Do not defer this. Retrofitting deletion into a system with derived embeddings and a training corpus is materially harder than building it in.
 
+**PoC status:** the schema supports anonymization (`pipeline_events.user_id` is nullable with no FK) but no delete/anonymize path is implemented. Out of scope for the local proof of concept — see `docs/OPEN_ISSUES.md` §9. Required before any real user data.
+
 Note: job postings themselves are not personal information, so the `jobs` table and its extracted fields are out of scope for deletion. Only the user side cascades.
 
 ## Data handling baseline

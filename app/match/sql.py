@@ -45,6 +45,12 @@ METADATA_PREDICATE = """
                             '%' || split_part(replace(tf.family, '/', ' '), ' ', 1) || '%'
                   )
               )
+              AND (
+                  uf.seniority_band IS NULL
+                  OR uf.seniority_band = ''
+                  OR j.seniority IS NULL
+                  OR lower(j.seniority) = ANY(string_to_array(lower(uf.seniority_band), ','))
+              )
 """
 
 # Incremental: newly ingested *or* newly extracted since the last cycle.
