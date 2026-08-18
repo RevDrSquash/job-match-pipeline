@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     queue_impl: str = "local"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/jobmatch"
     local_queue_base_url: str = "http://localhost:8080"
+    # extract/generate/verify LLM calls routinely exceed the old 30s default.
+    local_queue_timeout_seconds: float = 180.0
+    # Cap in-flight local dispatches so a match-batch extract burst cannot
+    # stampede the LLM provider (or uvicorn's thread pool) and burn retries.
+    local_queue_max_concurrent: int = 4
 
     # PoC/test only: in-memory handler receipt log + GET /_debug/received.
     # Must stay off in Cloud Run.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -25,7 +26,7 @@ from app.generate.llm import (
     build_job_context,
     log_generate_usage,
 )
-from app.ingest.events import record_pipeline_event
+from app.ingest.events import record_pipeline_event, usage_details
 from app.privacy import log_profile_access
 from app.profile.deps import build_skill_linker
 from app.queue import TaskQueue
@@ -144,6 +145,7 @@ def generate_resume(
     cache_key = f"{match.user_id}:{profile.profile_version}"
 
     try:
+        started = time.perf_counter()
         active_llm = llm if llm is not None else build_generate_llm(settings)
         generated, usage = active_llm.generate(
             cache_prefix=cache_prefix,
@@ -151,6 +153,7 @@ def generate_resume(
             cache_key=cache_key,
             violations=violations or None,
         )
+        latency_ms = (time.perf_counter() - started) * 1000
     except RetryableLLMError:
         record_pipeline_event(
             session,
@@ -191,6 +194,14 @@ def generate_resume(
         user_id=match.user_id,
         job_id=match.job_id,
         score=match.rerank_score,
+        details=usage_details(
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
+            latency_ms=latency_ms,
+            attempt=attempt,
+            generation_id=str(generation.id),
+        ),
     )
     session.flush()
     logger.info(

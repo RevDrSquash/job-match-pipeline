@@ -112,6 +112,8 @@ Fabrication is a hard gate: any fabricated claim → suite fail → CLI exit 1.
 assert that exit code before trusting a live generator. This blocks deploys.
 
 Prompt changes re-run `jobmatch evals run` (operational discipline below).
+The local proof-of-concept (`jobmatch poc run`) runs the same four suites
+and records the measured baselines in [`POC_RESULTS.md`](POC_RESULTS.md).
 
 ## Bootstrapping labels
 

@@ -235,7 +235,21 @@ def match_batch(
                 user_id=user_id,
             )
 
-    record_pipeline_event(session, stage=STAGE, action="completed")
+    record_pipeline_event(
+        session,
+        stage=STAGE,
+        action="completed",
+        details={
+            "mode": mode,
+            "users_considered": len(user_ids),
+            "prefilter_pairs": len(candidates),
+            "extracts_enqueued": extracts_enqueued,
+            "matches_written": matches_written,
+            "screens_enqueued": screens_enqueued,
+            "dirty_cleared": dirty_cleared,
+            "deferred_unextracted": len(unextracted),
+        },
+    )
     session.flush()
     logger.info(
         "match-batch completed mode=%s users=%s pairs=%s extracts=%s "

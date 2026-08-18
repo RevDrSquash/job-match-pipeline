@@ -13,7 +13,9 @@ Why it matters: at $0.005/call the gate costs ~$15/user/mo, which breaks the "sc
 
 The architectural decisions (separate gate call, gate placement before generation) hold under either figure, so the PoC is unaffected. **Resolution:** measure real token counts and cost per gate call during the PoC — already listed as an open cost question — then correct whichever doc is wrong.
 
-**PoC instrumentation (DEF-22):** `screen-job` now logs `prompt_tokens` / `completion_tokens` / `cost_usd` on every gate call (`GATE_MODEL`, default `gemini-3.5-flash-lite`). The ~10× discrepancy stays open until we have a measured distribution; do not "correct" either doc from a single fixture call.
+**PoC instrumentation (DEF-22):** `screen-job` now logs `prompt_tokens` / `completion_tokens` / `cost_usd` on every gate call (`GATE_MODEL`, default `gemini-3.5-flash-lite`) and persists the same fields on `pipeline_events.details`.
+
+**Resolution path (DEF-25):** `jobmatch poc run` writes the measured distribution to [`docs/POC_RESULTS.md`](POC_RESULTS.md) and this section is updated from that live `EMBEDDING_PROVIDER=gemini` run — not from a single fixture call. Until that report has a non-zero `screen-job` `n`, both docs stay as estimates.
 
 ## 2. Recall@K eval set size vs. the 500-posting seed corpus
 

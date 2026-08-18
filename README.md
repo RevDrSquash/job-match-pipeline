@@ -137,6 +137,19 @@ Fabrication is a hard gate: any fabricated claim fails the suite.
 
 Incremental matches jobs ingested or extracted since the last completed cycle against all profiles. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
 
+### Local proof of concept (DEF-25)
+
+One command seeds the corpus, ingests the test profile, cycles `match-batch` until extracts and screens drain through the local queue, runs the four eval suites, and writes [`docs/POC_RESULTS.md`](docs/POC_RESULTS.md):
+
+```bash
+# Measurement run needs EMBEDDING_PROVIDER=gemini and LLM_API_KEY / GEMINI_API_KEY.
+# VERIFY_API_KEY / ANTHROPIC_API_KEY is required for verify-resume stages 2–3.
+jobmatch poc run --quota 3
+jobmatch poc report   # rewrite the report from the current DB + latest eval JSON
+```
+
+The default profile is `tests/fixtures/sample_resume.md` (same persona as `evals/sets/v1`). Do not commit a real resume. `QUEUE_IMPL=local` is required — the runner POSTs handlers; it does not call generate/verify functions directly.
+
 Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below); when the table is empty the CLI falls back to a small built-in seed taxonomy. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
 
 Resume text is never written to application logs or exception traces. `profile show` prints the structured result to stdout for manual review.

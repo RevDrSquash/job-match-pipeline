@@ -30,8 +30,15 @@ class TaskQueue(Protocol):
 class LocalTaskQueue:
     """POST to local handler endpoints in a background thread with retries."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 180.0,
+        max_concurrent: int = 4,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._timeout = timeout
+        self._sem = threading.Semaphore(max(1, max_concurrent))
 
     def enqueue(self, queue_name: str, payload: dict, delay: int | None = None) -> None:
         thread = threading.Thread(
@@ -46,9 +53,16 @@ class LocalTaskQueue:
         if delay:
             time.sleep(delay)
         url = f"{self._base_url}/handlers/{queue_name}"
+        self._sem.acquire()
+        try:
+            self._post_with_retries(url, queue_name, payload)
+        finally:
+            self._sem.release()
+
+    def _post_with_retries(self, url: str, queue_name: str, payload: dict) -> None:
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
-                response = httpx.post(url, json=payload, timeout=30.0)
+                response = httpx.post(url, json=payload, timeout=self._timeout)
                 if response.status_code < 500:
                     logger.info(
                         "local queue delivered queue=%s status=%s attempt=%s",
@@ -124,7 +138,11 @@ def get_task_queue(settings: Settings | None = None) -> TaskQueue:
     settings = settings or get_settings()
     impl = settings.queue_impl.lower()
     if impl == "local":
-        return LocalTaskQueue(settings.local_queue_base_url)
+        return LocalTaskQueue(
+            settings.local_queue_base_url,
+            timeout=settings.local_queue_timeout_seconds,
+            max_concurrent=settings.local_queue_max_concurrent,
+        )
     if impl == "cloudtasks":
         return CloudTasksQueue(settings)
     raise ValueError(f"Unknown QUEUE_IMPL={settings.queue_impl!r}; expected local|cloudtasks")

@@ -13,3 +13,4 @@
 | [POSTING_SOURCES.md](POSTING_SOURCES.md) | OpenPostings reference, license blocker, volume reconciliation, company registry plan |
 | [UI.md](UI.md) | Surfaces, free-tier public search, feedback capture, admin dashboard, hosting |
 | [OPEN_ISSUES.md](OPEN_ISSUES.md) | Inconsistencies and deferred decisions found during doc review — not blocking the local proof of concept |
+| [POC_RESULTS.md](POC_RESULTS.md) | Local proof-of-concept measurement report (DEF-25) |
