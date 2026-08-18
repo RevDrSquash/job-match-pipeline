@@ -1,0 +1,28 @@
+{
+  "version": "v1",
+  "suite": "skill_linking_calibration",
+  "labeler": "sample",
+  "notes": "Calibration-only spans for scripts/calibrate_link_threshold.py — NOT scored by `jobmatch evals run` (v1 labels.json is frozen; see evals/README.md). Golds use the in-repo seed ids (esco:<slug>). skill_id=null means the span must refuse to link: generic terms over sibling-dense neighborhoods (database engines, JS frameworks, clouds) must not speculate a specific product — that invariant is what makes the future ESCO subsumption layer possible (docs/OPEN_ISSUES.md).",
+  "spans": [
+    {"text": "Postgres database administration", "skill_id": "esco:postgresql", "mention": "explicit"},
+    {"text": "MySQL performance tuning", "skill_id": "esco:mysql", "mention": "explicit"},
+    {"text": "building React user interfaces", "skill_id": "esco:react", "mention": "explicit"},
+    {"text": "orchestrating containers with K8s", "skill_id": "esco:kubernetes", "mention": "explicit"},
+    {"text": "automated deployment pipelines", "skill_id": "esco:ci-cd", "mention": "implicit"},
+    {"text": "writing automated unit tests", "skill_id": "esco:testing", "mention": "explicit"},
+    {"text": "scheduling DAGs in Apache Airflow", "skill_id": "esco:airflow", "mention": "explicit"},
+    {"text": "mentored junior developers", "skill_id": "esco:mentoring", "mention": "implicit"},
+    {"text": "cross-team collaboration", "skill_id": "esco:teamwork", "mention": "explicit"},
+    {"text": "REST API design", "skill_id": "esco:rest-api", "mention": "explicit"},
+    {"text": "strong problem-solving mindset", "skill_id": "esco:problem-solving", "mention": "explicit"},
+    {"text": "infrastructure as code with Terraform", "skill_id": "esco:terraform", "mention": "explicit"},
+    {"text": "relational databases", "skill_id": null, "mention": "explicit"},
+    {"text": "NoSQL data stores", "skill_id": null, "mention": "explicit"},
+    {"text": "a modern JavaScript framework", "skill_id": null, "mention": "explicit"},
+    {"text": "public cloud experience", "skill_id": null, "mention": "explicit"},
+    {"text": "message queues", "skill_id": null, "mention": "explicit"},
+    {"text": "scripting languages", "skill_id": null, "mention": "explicit"},
+    {"text": "fast-paced startup environment", "skill_id": null, "mention": "explicit"},
+    {"text": "bachelor's degree in computer science", "skill_id": null, "mention": "explicit"}
+  ]
+}

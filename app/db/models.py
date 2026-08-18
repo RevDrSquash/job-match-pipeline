@@ -44,6 +44,9 @@ class Skill(Base):
     )
     description: Mapped[str | None] = mapped_column(Text)
     embedding = mapped_column(Vector(EMBEDDING_DIM))
+    # Which model produced ``embedding`` (e.g. gemini-embedding-001). Null when
+    # the row has no vector or it came from the offline hashing stand-in.
+    embedding_model: Mapped[str | None] = mapped_column(Text)
 
 
 class Company(Base):

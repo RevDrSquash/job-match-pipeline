@@ -41,6 +41,11 @@ default hashing embedder is an offline stand-in (`docs/OPEN_ISSUES.md` §6).
 The runner **warns loudly** under hashing and **refuses** the suite if you
 pass `--require-gemini-embeddings`.
 
+The skill-linking suite's similarity fallback likewise picks its span
+embedder from `EMBEDDING_PROVIDER` (seed labels are embedded on the fly);
+implicit-mention recall is always 0 without it. `--offline` keeps the
+exact/alias-only linker and needs no API key.
+
 Live extraction / generation (optional):
 
 ```bash
@@ -104,6 +109,12 @@ product and design" → teamwork with no alias overlap. **Do not average
 implicit into explicit** — the runner reports them separately on purpose.
 
 Skill ids must come from the shared linker taxonomy. Do not invent slugs.
+
+`skill_linking/calibration_spans.json` is a calibration-only companion file
+(sibling-dense cases and `skill_id: null` negatives) consumed by
+`scripts/calibrate_link_threshold.py`, **not** by the eval runner — v1
+`labels.json` stays frozen per the versioning rule above. Fold those spans
+into `labels.json` when cutting v2.
 
 ### 3. Retrieval recall@K
 

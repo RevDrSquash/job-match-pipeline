@@ -122,7 +122,7 @@ def verify_resume(
     )
 
     attempt = _attempt(payload, generation)
-    active_linker = linker if linker is not None else build_skill_linker(session)
+    active_linker = linker if linker is not None else build_skill_linker(session, settings)
     work_history = list(profile.work_history or [])
     work_block = render_work_history_block(work_history)
     resume_doc = generation.resume_doc or ""

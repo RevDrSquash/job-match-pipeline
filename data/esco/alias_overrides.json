@@ -1,0 +1,152 @@
+{
+  "version": "v1",
+  "taxonomy": "ESCO",
+  "notes": "Curated everyday aliases for official ESCO concept URIs, merged into alt_labels by scripts/load_esco.py at upsert time. Phrasing comes from common software-engineering JDs, not the fixture resume. preferred_label is provenance only (must match the taxonomy row). Docker, Kubernetes, Terraform, and AWS have no ESCO concept and are intentionally omitted.",
+  "overrides": [
+    {
+      "uri": "http://data.europa.eu/esco/skill/dba46f87-0831-49cd-a1c7-340a653c0221",
+      "preferred_label": "Agile development",
+      "aliases": ["agile methodology", "agile software development"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/6f8a40d6-f9ce-43ec-a72f-d4213a53f3ed",
+      "preferred_label": "Ansible",
+      "aliases": ["ansible playbooks"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/56a7f561-1d55-43c9-9cd7-36a0a9bc6c50",
+      "preferred_label": "ASP.NET",
+      "aliases": ["asp.net", "aspnet", "asp net"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/4c016b68-4116-468c-9dc6-42710c239e4a",
+      "preferred_label": "C#",
+      "aliases": ["csharp", "c-sharp"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/b633eb55-8f1f-4ae6-ab4c-2022ffe2cb7f",
+      "preferred_label": "C++",
+      "aliases": ["cpp", "c plus plus"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/49f85a99-086c-45b6-a6fa-eb90305af7b1",
+      "preferred_label": "Chef (tools for software configuration management)",
+      "aliases": ["Chef"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/bd14968e-e409-45af-b362-3495ed7b10e0",
+      "preferred_label": "cloud technologies",
+      "aliases": ["cloud tech", "cloud infrastructure", "cloud services"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/e5d1f825-60ed-4bdd-872a-e748c387f777",
+      "preferred_label": "CSS",
+      "aliases": ["css3"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/ab1e97ed-2319-4293-a8b7-072d2648822f",
+      "preferred_label": "database management systems",
+      "aliases": ["relational databases", "relational database", "rdbms"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/f0de4973-0a70-4644-8fd4-3a97080476f4",
+      "preferred_label": "DevOps",
+      "aliases": ["devops", "dev ops", "dev-ops"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/19a8293b-8e95-4de3-983f-77484079c389",
+      "preferred_label": "Java (computer programming)",
+      "aliases": ["Java"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/3cd569a2-4f88-4c1e-9995-8dce8c5e51a7",
+      "preferred_label": "JavaScript",
+      "aliases": ["js", "ecmascript", "vanilla js"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/f47a1998-0beb-43be-9f46-380aa4d183da",
+      "preferred_label": "Jenkins (tools for software configuration management)",
+      "aliases": ["Jenkins"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/4da171e5-779c-4983-a76f-91c16751e99f",
+      "preferred_label": "MySQL",
+      "aliases": ["my sql"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/76ef6ed3-1658-4a1a-9593-204d799c6d0c",
+      "preferred_label": "NoSQL",
+      "aliases": ["no-sql", "no sql"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/de9f85ba-e77f-48fd-8c66-f5ebaf32d655",
+      "preferred_label": "Oracle Relational Database",
+      "aliases": ["Oracle", "Oracle DB", "Oracle Database"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/a8d07b5a-c1a1-42c6-9d53-db9c7a2ca996",
+      "preferred_label": "PostgreSQL",
+      "aliases": ["postgres", "psql"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/e465a154-93f7-4973-9ce1-31659fe16dd2",
+      "preferred_label": "principles of artificial intelligence",
+      "aliases": ["artificial intelligence", "AI"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/6417a4cc-6f61-4459-a114-761a7fa0279d",
+      "preferred_label": "Puppet (tools for software configuration management)",
+      "aliases": ["Puppet"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/ccd0a1d9-afda-43d9-b901-96344886e14d",
+      "preferred_label": "Python (computer programming)",
+      "aliases": ["Python", "python 3", "cpython"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/0ccdfe98-f845-4598-84a1-3dca66e9d9a3",
+      "preferred_label": "Ruby (computer programming)",
+      "aliases": ["Ruby"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/1110c92f-3059-445a-9436-0f4200d365f5",
+      "preferred_label": "Sass",
+      "aliases": ["scss"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/598de5b0-5b58-4ea7-8058-a4bc4d18c742",
+      "preferred_label": "SQL",
+      "aliases": ["structured query language"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/be80acfc-b6f2-4411-9b8d-b19d9cd2556a",
+      "preferred_label": "Swift (computer programming)",
+      "aliases": ["Swift"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/a5b0cd5c-e13a-4ab3-8d93-4d242adcfb01",
+      "preferred_label": "teamwork principles",
+      "aliases": ["teamwork", "collaboration", "cross-functional"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/867137fb-ff1b-4ca3-99f3-cb6969aa2c68",
+      "preferred_label": "TypeScript",
+      "aliases": ["ts"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/8369c2d6-c100-4cf6-bd83-9668d8678433",
+      "preferred_label": "utilise machine learning",
+      "aliases": ["machine learning", "ml"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/902fb91c-3113-4004-9b4f-79aa86b638b7",
+      "preferred_label": "web application security threats",
+      "aliases": ["appsec", "application security"]
+    },
+    {
+      "uri": "http://data.europa.eu/esco/skill/69bbd53f-fbb0-4476-b4b2-ef7844464e28",
+      "preferred_label": "web programming",
+      "aliases": ["web development", "web dev"]
+    }
+  ]
+}

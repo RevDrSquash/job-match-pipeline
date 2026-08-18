@@ -274,6 +274,7 @@ skills
   id                       -- opaque taxonomy id (ESCO concept URI in the PoC)
   canonical_label, alt_labels[], description
   embedding vector(768)    -- span-similarity fallback for the linker
+  embedding_model          -- which model produced embedding (nullable)
 
 users
   id, tier, quota_remaining, quota_reset_at

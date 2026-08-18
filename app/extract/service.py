@@ -24,9 +24,8 @@ from app.extract.llm import (
 )
 from app.extract.synthesize import build_synthesized_doc
 from app.ingest.events import record_pipeline_event, usage_details
-from app.skills.embeddings import HashingEmbedder
+from app.skills.factory import linker_from_session
 from app.skills.linker import InMemorySkillLinker, SkillLinker
-from app.skills.repository import load_skill_records
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +149,7 @@ def extract_job(
             cost_usd=usage.cost_usd,
         )
 
-    active_linker = linker or _linker_from_session(session)
+    active_linker = linker or _linker_from_session(session, settings)
     skill_ids = active_linker.link_spans(list(extraction.skill_spans))
     skill_labels = _skill_labels(session, active_linker, skill_ids)
 
@@ -281,11 +280,13 @@ def _skills_table_populated(session: Session) -> bool:
     return session.scalar(select(Skill.id).limit(1)) is not None
 
 
-def _linker_from_session(session: Session) -> InMemorySkillLinker:
-    records = load_skill_records(session)
-    return InMemorySkillLinker(
-        records,
-        embedder=HashingEmbedder(),
+def _linker_from_session(
+    session: Session, settings: Settings | None = None
+) -> InMemorySkillLinker:
+    return linker_from_session(
+        session,
+        settings,
+        allow_seed=False,
         build_missing_embeddings=False,
     )
 

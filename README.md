@@ -221,8 +221,14 @@ python -m scripts.load_esco
 ```
 
 Re-running the loader updates existing rows; it does not duplicate. Pass
-`--no-embeddings` to skip the PoC hashing embeddings (exact/alias linking
-still works). See `scripts/load_esco.py` for flags.
+`--embedding-provider hashing|gemini` to choose the taxonomy-vector
+embedder (default: `EMBEDDING_PROVIDER`). `gemini` uses
+`gemini-embedding-001` / `SEMANTIC_SIMILARITY` and skips rows that
+already have a matching `embedding_model` so a free-tier backfill can
+resume. Pass `--no-embeddings` to skip vectors (exact/alias linking
+still works). Curated everyday aliases live in
+`data/esco/alias_overrides.json` and are merged into `alt_labels` on
+every load. See `scripts/load_esco.py` for flags.
 
 ## Conventions (baked into handlers)
 

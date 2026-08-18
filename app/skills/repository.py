@@ -13,12 +13,25 @@ from app.skills.embeddings import Embedder, HashingEmbedder
 from app.skills.linker import SkillRecord, skill_embedding_text
 
 
+def _resolve_embedding_model(
+    explicit: str | None, embedder: Embedder | None
+) -> str | None:
+    """Prefer an explicit model name, then ``embedder.model`` if present."""
+    if explicit is not None:
+        return explicit
+    if embedder is None:
+        return None
+    model = getattr(embedder, "model", None)
+    return str(model) if model else None
+
+
 def upsert_skills(
     session: Session,
     records: Sequence[SkillRecord],
     *,
     embedder: Embedder | None = None,
     compute_embeddings: bool = True,
+    embedding_model: str | None = None,
     batch_size: int = 500,
     commit: bool = True,
 ) -> int:
@@ -29,6 +42,12 @@ def upsert_skills(
     active_embedder = embedder
     if compute_embeddings and active_embedder is None:
         active_embedder = HashingEmbedder()
+
+    computed_model = (
+        _resolve_embedding_model(embedding_model, active_embedder)
+        if compute_embeddings
+        else embedding_model
+    )
 
     written = 0
     for start in range(0, len(records), batch_size):
@@ -48,6 +67,11 @@ def upsert_skills(
                 "alt_labels": list(record.alt_labels),
                 "description": record.description,
                 "embedding": emb,
+                "embedding_model": (
+                    computed_model
+                    if compute_embeddings
+                    else computed_model or record.embedding_model
+                ),
             }
             for record, emb in zip(chunk, embeddings, strict=True)
         ]
@@ -59,15 +83,16 @@ def upsert_skills(
                 "alt_labels": stmt.excluded.alt_labels,
                 "description": stmt.excluded.description,
                 "embedding": stmt.excluded.embedding,
+                "embedding_model": stmt.excluded.embedding_model,
             },
         )
         session.execute(stmt)
         written += len(rows)
+        if commit:
+            session.commit()
+        else:
+            session.flush()
 
-    if commit:
-        session.commit()
-    else:
-        session.flush()
     return written
 
 
@@ -81,6 +106,7 @@ def load_skill_records(session: Session) -> list[SkillRecord]:
             alt_labels=tuple(row.alt_labels or ()),
             description=row.description,
             embedding=tuple(row.embedding) if row.embedding is not None else None,
+            embedding_model=row.embedding_model,
         )
         for row in rows
     ]

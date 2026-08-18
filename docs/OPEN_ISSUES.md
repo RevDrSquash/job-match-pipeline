@@ -56,7 +56,34 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
 
 * **Embedding model** — docs fix the dimension (768) but not the model.
   **Skill-span linking:** deterministic feature-hashing embedder in
-  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d).
+  `app/skills/embeddings.py` (`HashingEmbedder`, 768-d) is the offline
+  default. Live taxonomy backfill (`scripts/load_esco.py
+  --embedding-provider gemini`, defaulting to `EMBEDDING_PROVIDER`) uses
+  `GeminiSpanEmbedder`: `gemini-embedding-001` via `batchEmbedContents`,
+  `taskType=SEMANTIC_SIMILARITY` (symmetric span↔label — not the document
+  embedder's `RETRIEVAL_DOCUMENT`), Matryoshka-truncated to 768 and
+  L2-normalized. Stored rows record `skills.embedding_model` so a
+  an   interrupted backfill can skip already-embedded concepts. Runtime linker
+  builders (`app/skills/factory.py`, used by profile ingest / extract-job /
+  generate / verify) pick the span embedder from `EMBEDDING_PROVIDER` and
+  trust stored vectors only when `skills.embedding_model` matches; a
+  mismatch falls back to in-memory hashing so tests and offline runs stay
+  on the hashing space. Similarity uses a two-tier rule: link when
+  `best >= high_confidence` regardless of margin, otherwise require
+  `best >= threshold` and `best - second >= margin`. Hashing defaults
+  stay `0.72 / 0.72 / 0` (back-compat). Gemini defaults are **measured**
+  (2026-08-18, `scripts/calibrate_link_threshold.py --provider gemini`
+  over the skill_linking eval labels plus
+  `evals/sets/v1/skill_linking/calibration_spans.json` negatives):
+  `high_confidence 0.90 / threshold 0.85 / margin 0.05`. The
+  `gemini-embedding-001` SEMANTIC_SIMILARITY score space is compressed —
+  true paraphrase positives scored 0.867–0.958 (median 0.921) while
+  must-refuse spans (generic terms over sibling-dense neighborhoods:
+  "relational databases", "a modern JavaScript framework") reached 0.896
+  with margins ≤ 0.043 — so the cutoffs sit on a narrow ledge; re-run the
+  calibration script whenever the embedding model or the taxonomy changes.
+  Override via `SKILL_LINK_HIGH_CONFIDENCE` / `SKILL_LINK_THRESHOLD` /
+  `SKILL_LINK_MARGIN`.
   **Job/profile documents (DEF-20, updated 2026-08):** Google
   `gemini-embedding-001` Matryoshka-truncated to 768
   (`outputDimensionality=768`, L2-normalized client-side because reduced-dim
@@ -98,7 +125,7 @@ Where profile ingest landed after the merge:
 
 * **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality. `gemini-embedding-001` caps input at 2,048 tokens and truncates silently, so the synthesized profile doc is trimmed to that budget (oldest roles' bullets dropped first; job docs already cap at 500) and the embedder logs an error if an over-cap doc ever slips through.
 * **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-3.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
-* **Skill linking:** the shared `app/skills` linker over the `skills` table, with the in-repo seed fallback described in §6.
+* **Skill linking:** the shared `app/skills` linker over the `skills` table (provider-aware builder in `app/skills/factory.py`; see §6), with the in-repo seed fallback described in §6.
 
 ## 8. generate-resume / verify-resume model split (DEF-23)
 
@@ -110,6 +137,29 @@ Docs require a **different model family** for verify stages 2–3 than the gener
 
 Self-verification within Gemini is intentionally not offered as a fallback: a missing Anthropic key is a retryable config error, not a silent downgrade to the generator family.
 
-## 9. User deletion / anonymization path is unimplemented
+## 9. ESCO hierarchy / subsumption-aware skill buckets (deferred follow-up)
+
+Generic↔specific skill matching is not implemented: a JD asking for
+"relational databases" is satisfied by PostgreSQL on a profile, but not vice
+versa. Doing this properly needs the ESCO broader/narrower relations loaded
+(the current loader takes only the flat skill concepts) and a subsumption rule
+in the `skill_buckets` logic: a job skill counts as matched when the profile
+holds it **or a descendant**; the converse direction (profile generic, job
+specific) is adjacent at best. Until then, generic-vs-specific pairs land in
+the **missing** bucket — conservative and fabrication-safe, but it understates
+matches.
+
+Two invariants make the future layer possible; keep them:
+
+* The linker must canonicalize generic spans to **generic concepts, never to a
+  specific product** — the calibrated margin rule enforces this by refusing
+  near-tied sibling neighborhoods (MySQL vs PostgreSQL for an ambiguous span),
+  and `calibration_spans.json` pins it with `skill_id: null` negatives.
+* Docker / Kubernetes / Terraform and similar tools have **no ESCO concept at
+  all** (checked against the 2026 skills pillar); they stay unlinked until a
+  taxonomy supplement is designed. That is documented behavior, not a linking
+  regression.
+
+## 10. User deletion / anonymization path is unimplemented
 
 `docs/PRIVACY_AND_COMPLIANCE.md` ("Deletion — design for it now") requires a cascade that strips or deletes user-side rows, including `pipeline_events` linkage. The schema is ready — `pipeline_events.user_id` is nullable with no FK (DEF-16, §4) so anonymization can null the column without deleting the training row — but there is no delete or anonymize path in the app. Fine for the local PoC (no real user data). A working path is required before any real resume is stored.

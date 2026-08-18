@@ -123,7 +123,7 @@ def generate_resume(
         attempt=attempt,
     )
 
-    active_linker = linker if linker is not None else build_skill_linker(session)
+    active_linker = linker if linker is not None else build_skill_linker(session, settings)
     work_history = list(profile.work_history or [])
     cache_prefix = render_work_history_block(work_history)
     buckets = assemble_skill_buckets(

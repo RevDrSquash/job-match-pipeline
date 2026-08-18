@@ -14,6 +14,8 @@ from app.evals.paths import find_results_dir, find_sets_root, load_set
 from app.evals.report import EvalReport, SuiteResult, render_summary, utc_now, write_report
 from app.evals.retrieval import run_retrieval_suite
 from app.evals.skill_linking import run_skill_linking_suite
+from app.extract.llm import RetryableLLMError
+from app.skills.factory import linker_from_records
 from app.skills.linker import InMemorySkillLinker, SkillLinker
 from app.skills.taxonomy import seed_records
 
@@ -58,7 +60,7 @@ def run_evals(
     sets_root = find_sets_root(sets_dir)
     version, _manifest, set_dir = load_set(sets_root, set_version)
     out_dir = find_results_dir(results_dir)
-    active_linker = linker or _default_linker()
+    active_linker = linker or _default_linker(settings, offline=offline)
 
     started = utc_now()
     results: list[SuiteResult] = []
@@ -168,12 +170,25 @@ def _resolve_suites(suites: Sequence[str] | None) -> list[str]:
     return resolved
 
 
-def _default_linker() -> InMemorySkillLinker:
+def _default_linker(settings: Settings, *, offline: bool) -> InMemorySkillLinker:
     """In-repo seed taxonomy. Sample labels use ``esco:<slug>`` ids.
 
     Hand labels against a loaded ESCO table should use those concept URIs and
     pass a linker built from ``load_skill_records`` (same module, different
     snapshot). Mixing official URIs into the sample set would make
     ``scan_text`` flag false fabrications.
+
+    Live runs pick the span embedder from ``EMBEDDING_PROVIDER`` (seed labels
+    are embedded on the fly — ~100 short strings) so the skill_linking suite
+    exercises the calibrated similarity fallback; implicit-mention recall is
+    always 0 without it. ``--offline`` keeps the historical exact/alias-only
+    linker (no embedder, no API key required).
     """
+    if not offline:
+        try:
+            return linker_from_records(list(seed_records()), settings)
+        except RetryableLLMError as exc:
+            logger.warning(
+                "evals default linker: %s — similarity fallback disabled", exc
+            )
     return InMemorySkillLinker(seed_records(), build_missing_embeddings=False)
