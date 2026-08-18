@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
             return _dispatch_match(args)
         if args.command == "evals":
             return _dispatch_evals(args)
+        if args.command == "poc":
+            return _dispatch_poc(args)
         parser.print_help()
         return 2
     except PrivacySafeError as exc:
@@ -183,6 +185,59 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Refuse the retrieval suite unless EMBEDDING_PROVIDER=gemini",
     )
+
+    poc = sub.add_parser("poc", help="Local proof-of-concept run and measurement report")
+    poc_sub = poc.add_subparsers(dest="poc_command", required=True)
+    poc_run = poc_sub.add_parser(
+        "run",
+        help="Seed, ingest profile, cycle match-batch, run evals, write docs/POC_RESULTS.md",
+    )
+    poc_run.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Resume file (default: tests/fixtures/sample_resume.md)",
+    )
+    poc_run.add_argument("--target", type=int, default=500, help="Seed corpus size")
+    poc_run.add_argument(
+        "--quota",
+        type=int,
+        default=3,
+        help="Resume-generation quota for the test user (small on purpose)",
+    )
+    poc_run.add_argument("--skip-seed", action="store_true")
+    poc_run.add_argument("--skip-evals", action="store_true")
+    poc_run.add_argument(
+        "--offline-evals",
+        action="store_true",
+        help="Force heuristic/offline eval predictors even if an API key is set",
+    )
+    poc_run.add_argument(
+        "--keep-default-filters",
+        action="store_true",
+        help="Do not clear the inferred city filter (will drop most US seed jobs)",
+    )
+    poc_run.add_argument(
+        "--base-url",
+        default=None,
+        help="Handler base URL (default: LOCAL_QUEUE_BASE_URL)",
+    )
+    poc_run.add_argument(
+        "--wait-seconds",
+        type=float,
+        default=900.0,
+        help="Max seconds to wait for extract/screen/generate/verify to drain",
+    )
+    poc_report = poc_sub.add_parser(
+        "report",
+        help="Rewrite docs/POC_RESULTS.md from the current database + latest eval JSON",
+    )
+    poc_report.add_argument(
+        "--eval-json",
+        type=Path,
+        default=None,
+        help="Eval report JSON (default: newest file in evals/results)",
+    )
     return parser
 
 
@@ -302,6 +357,50 @@ def _dispatch_match(args: argparse.Namespace) -> int:
         print(f"error: handler returned {response.status_code}", file=sys.stderr)
         return 1
     return 0
+
+
+def _dispatch_poc(args: argparse.Namespace) -> int:
+    if args.poc_command == "run":
+        from app.poc.run import format_poc_result, run_poc
+
+        result = run_poc(
+            resume_file=args.resume,
+            target=args.target,
+            quota=args.quota,
+            skip_seed=args.skip_seed,
+            skip_evals=args.skip_evals,
+            offline_evals=args.offline_evals,
+            generous_filters=not args.keep_default_filters,
+            base_url=args.base_url,
+            wait_seconds=args.wait_seconds,
+        )
+        print(format_poc_result(result))
+        delivered = result.snapshot.get("delivered_resumes") or []
+        live_ok = result.live and any(
+            row.get("verify_status") == "passed" for row in delivered
+        )
+        if result.live and not live_ok:
+            return 1
+        return 0
+    if args.poc_command == "report":
+        from app.evals.paths import find_results_dir
+        from app.poc.measure import collect_measurements
+        from app.poc.report import write_poc_results
+
+        eval_payload = None
+        eval_path = args.eval_json
+        if eval_path is None:
+            results = find_results_dir()
+            jsons = sorted(results.glob("*.json"))
+            eval_path = jsons[-1] if jsons else None
+        if eval_path is not None and eval_path.is_file():
+            eval_payload = json.loads(eval_path.read_text(encoding="utf-8"))
+        with db_session() as session:
+            snapshot = collect_measurements(session)
+        path = write_poc_results(snapshot, eval_report=eval_payload)
+        print(path)
+        return 0
+    return 2
 
 
 def _dispatch_evals(args: argparse.Namespace) -> int:

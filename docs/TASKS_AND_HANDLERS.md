@@ -165,7 +165,7 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 { "verdict": "pass|reject", "reason": "...", "confidence": 0.0 }
 ```
 
-**Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate ~$0.005 gate call saves the full generation cost on reject.
+**Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap gate call saves the full generation cost on reject. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
 
 On pass **and** user has remaining quota → enqueue `generate-resume`.
 
@@ -296,7 +296,8 @@ generations
 
 pipeline_events                        -- the training set
   id, user_id (nullable, no FK — strippable for anonymization), job_id,
-  stage, score, action, ts
+  stage, score, action, ts,
+  details jsonb                        -- token/cost/latency; never resume/JD text
 ```
 
 `pipeline_events` is not incidental logging. Every `(user, job, stage, score, action)` tuple — shown, skipped, gate-rejected, generated, applied — is the dataset for a fine-tuned person-job-fit encoder later, and the main defensible asset. Populate it from the first day of the local proof of concept.

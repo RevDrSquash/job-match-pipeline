@@ -65,7 +65,17 @@ Extraction cost is paid **once per posting**, not once per posting per user — 
 
 ## Per-user costs
 
-Assuming ~10k postings/day ingested, ~1% surviving metadata filters (~100 candidates/user/day):
+Assuming ~10k postings/day ingested, ~1% surviving metadata filters (~100 candidates/user/day).
+
+**Measured on the 500-posting seed (DEF-25, same `match-batch` SQL):** title-family "Software Engineering", no comp floor. Location is the load-bearing knob:
+
+| Location filter | Survivors | Rate |
+| -- | -- | -- |
+| Unconstrained (empty array) | 83 / 500 | **16.6%** |
+| `Remote` (substring on ATS location) | 7 / 500 | **1.4%** |
+| `Vancouver` (sample-resume city) | 0 / 500 | **0%** |
+
+The ~1% working number is in the right ballpark **when the profile constrains location to Remote** (or a similarly common ATS token). A single-city filter against this US-heavy seed drops everyone. Title-only is an order of magnitude more generous than the cost model. See [`POC_RESULTS.md`](POC_RESULTS.md).
 
 | Stage | Volume | Est. monthly cost/user |
 | -- | -- | -- |
@@ -150,5 +160,5 @@ The hybrid gives breakage in our favor (most users won't hit N), a cap against p
 
 * Real token counts for extraction and generation prompts (biggest source of error in this model)
 * Prompt caching effectiveness in practice
-* Actual candidate survival rate — the ~1% figure is from limited testing and drives the whole screening line
+* Actual candidate survival rate — first cut on the 500-posting seed: **1.4% with a `Remote` location filter, 16.6% unconstrained, 0% on Vancouver**. The ~1% line item holds only under a Remote-like constraint; see DEF-25 / `POC_RESULTS.md`. Re-measure when the labeled owner profile and gemini embeddings land.
 * Whether verification can be cut to one LLM call without losing the JD-blindness property (probably not — the separation is the point)

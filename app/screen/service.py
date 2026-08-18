@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db.models import Job, Match, User, UserProfile
 from app.extract.llm import RetryableLLMError
-from app.ingest.events import record_pipeline_event
+from app.ingest.events import record_pipeline_event, usage_details
 from app.privacy import log_profile_access
 from app.queue import TaskQueue
 from app.screen.gate import (
@@ -110,6 +111,7 @@ def screen_job(
     )
 
     usage_tokens = (0, 0, 0.0)
+    latency_ms = 0.0
     if overlap.exceeds_drop_threshold(settings.hard_req_missing_drop_threshold):
         verdict = "reject"
         reason = (
@@ -126,8 +128,10 @@ def screen_job(
             confidence = 1.0
         else:
             try:
+                started = time.perf_counter()
                 active_llm = llm if llm is not None else build_gate_llm(settings)
                 decision, usage = active_llm.screen(job_doc=job_doc, profile_doc=profile_doc)
+                latency_ms = (time.perf_counter() - started) * 1000
             except RetryableLLMError:
                 record_pipeline_event(
                     session,
@@ -197,6 +201,14 @@ def screen_job(
         user_id=match.user_id,
         job_id=match.job_id,
         score=match.rerank_score,
+        details=usage_details(
+            prompt_tokens=usage_tokens[0],
+            completion_tokens=usage_tokens[1],
+            cost_usd=usage_tokens[2],
+            latency_ms=latency_ms,
+            hard_req_missing_count=overlap.missing_count,
+            gate_verdict=verdict,
+        ),
     )
 
     if is_reranker_gate_disagreement(

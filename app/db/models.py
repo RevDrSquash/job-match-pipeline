@@ -202,3 +202,5 @@ class PipelineEvent(Base):
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Token/cost/latency and cycle counters. Never store resume or JD text.
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

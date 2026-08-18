@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -19,7 +20,7 @@ from app.generate.buckets import (
 )
 from app.generate.history import render_work_history_block
 from app.generate.llm import build_job_context
-from app.ingest.events import record_pipeline_event
+from app.ingest.events import record_pipeline_event, usage_details
 from app.privacy import log_profile_access
 from app.profile.deps import build_skill_linker
 from app.queue import TaskQueue
@@ -144,6 +145,7 @@ def verify_resume(
     completion_tokens = 0
     cost_usd = 0.0
     llm_failures: list[str] = []
+    started = time.perf_counter()
 
     # Stages 2 and 3 always run so the training set sees all three signals,
     # even when stage 1 already failed.
@@ -205,6 +207,14 @@ def verify_resume(
         raise
 
     named = [item.named() for item in stage1] + llm_failures
+    verify_details = usage_details(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=cost_usd,
+        latency_ms=(time.perf_counter() - started) * 1000,
+        generation_id=str(generation.id),
+        failure_count=len(named),
+    )
     if not named:
         _write_status(generation, STATUS_PASSED, [])
         record_pipeline_event(
@@ -214,6 +224,7 @@ def verify_resume(
             user_id=match.user_id,
             job_id=match.job_id,
             score=match.rerank_score,
+            details=verify_details,
         )
         session.flush()
         logger.info("verify-resume action=passed generation_id=%s", generation.id)
@@ -246,6 +257,7 @@ def verify_resume(
             user_id=match.user_id,
             job_id=match.job_id,
             score=match.rerank_score,
+            details=verify_details,
         )
         session.flush()
         logger.info(
@@ -273,6 +285,7 @@ def verify_resume(
         user_id=match.user_id,
         job_id=match.job_id,
         score=match.rerank_score,
+        details=verify_details,
     )
     session.flush()
     logger.info(

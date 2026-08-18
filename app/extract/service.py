@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ from app.extract.llm import (
     log_llm_usage,
 )
 from app.extract.synthesize import build_synthesized_doc
-from app.ingest.events import record_pipeline_event
+from app.ingest.events import record_pipeline_event, usage_details
 from app.skills.embeddings import HashingEmbedder
 from app.skills.linker import InMemorySkillLinker, SkillLinker
 from app.skills.repository import load_skill_records
@@ -83,6 +84,7 @@ def extract_job(
         session.flush()
         return ExtractResult(action="unparseable", job_id=str(job.id))
 
+    started = time.perf_counter()
     try:
         active_llm = llm if llm is not None else _build_llm(settings)
         extraction, usage = active_llm.extract_job(raw_jd, title=job.title)
@@ -95,7 +97,18 @@ def extract_job(
 
     if not extraction.is_usable():
         logger.info("extract-job permanent failure action=unparseable job_id=%s", job.id)
-        record_pipeline_event(session, stage=STAGE, action="unparseable", job_id=job.id)
+        record_pipeline_event(
+            session,
+            stage=STAGE,
+            action="unparseable",
+            job_id=job.id,
+            details=usage_details(
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                cost_usd=usage.cost_usd,
+                latency_ms=(time.perf_counter() - started) * 1000,
+            ),
+        )
         session.flush()
         return ExtractResult(
             action="unparseable",
@@ -172,7 +185,20 @@ def extract_job(
             cost_usd=usage.cost_usd + embedding.cost_usd,
         )
 
-    record_pipeline_event(session, stage=STAGE, action="extracted", job_id=job.id)
+    record_pipeline_event(
+        session,
+        stage=STAGE,
+        action="extracted",
+        job_id=job.id,
+        details=usage_details(
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd + embedding.cost_usd,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            embed_tokens=embedding.token_count,
+            embed_cost_usd=embedding.cost_usd,
+        ),
+    )
     session.flush()
     logger.info(
         "extract-job extracted job_id=%s skill_count=%s synth_chars=%s",

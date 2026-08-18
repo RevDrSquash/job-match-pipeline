@@ -186,6 +186,21 @@ def test_pipeline_events_user_id_strippable(db_session: Session) -> None:
     assert refreshed.user_id is None
 
 
+@requires_db
+def test_pipeline_events_details_round_trip(db_session: Session) -> None:
+    event = PipelineEvent(
+        stage="extract-job",
+        action="extracted",
+        details={"prompt_tokens": 12, "completion_tokens": 4, "cost_usd": 0.001},
+    )
+    db_session.add(event)
+    db_session.flush()
+    loaded = db_session.get(PipelineEvent, event.id)
+    assert loaded is not None
+    assert loaded.details["prompt_tokens"] == 12
+    assert loaded.details["cost_usd"] == 0.001
+
+
 def test_database_url_normalizes_psycopg_driver() -> None:
     assert normalize_database_url("postgresql://u:p@localhost/db") == (
         "postgresql+psycopg://u:p@localhost/db"
