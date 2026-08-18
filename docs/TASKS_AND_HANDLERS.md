@@ -206,7 +206,7 @@ The missing bucket does the most work. Without an explicit list, a model asked t
 
 **PoC implementation** (`POST /handlers/generate-resume` with `{user_id, job_id, match_id}` from `screen-job`, plus `attempt` / `violations` on a single regenerate):
 
-* Generation model: `GENERATION_MODEL` (default `gemini-3.5-pro`). Resume text is personal information — ZDR/no-training vendor terms apply (`docs/PRIVACY_AND_COMPLIANCE.md`); paperwork is deferred. Prompt/completion text is never logged.
+* Generation model: `GENERATION_MODEL` (default `gemini-3.1-pro-preview`). Resume text is personal information — ZDR/no-training vendor terms apply (`docs/PRIVACY_AND_COMPLIANCE.md`); paperwork is deferred. Prompt/completion text is never logged.
 * Input is assembled as the three match buckets (`matched_skills` / `adjacent_skills` / `missing_skills`) plus terminology context (canonical label, JD surface form, resume surface form). No find-replace on skill terms.
 * Job context prefers `jobs.raw_jd` and falls back to `jobs.synthesized_doc`. Compact synth docs are for rerank (`ARCHITECTURE.md` §3); generation is low-volume and needs JD surface forms for the "use the JD's phrasing" instruction. Token counts and estimated cost are logged on every call.
 * The work-history block is a stable prefix keyed on `user_id` + `profile_version`. Gemini explicit `cachedContents` is attempted; short prefixes and unsupported models fall back to implicit prefix caching (identical first part, JD-only suffix).

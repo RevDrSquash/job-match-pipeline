@@ -25,6 +25,7 @@ from app.poc.report import write_poc_results
 from app.profile.deps import build_profile_deps
 from app.profile.service import edit_profile, ingest_profile
 from app.profile.text import read_resume_file
+from app.seed import DEFAULT_CONFIG as DEFAULT_SEED_CONFIG
 from app.seed import seed as seed_corpus
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,9 @@ def run_poc(
     seed_summary = {"skipped": True}
     if not skip_seed:
         logger.info("poc seed target=%s", target)
-        seed_summary = seed_corpus(config_path=seed_config, target=target)
+        seed_summary = seed_corpus(
+            config_path=seed_config or DEFAULT_SEED_CONFIG, target=target
+        )
         notes.append(
             f"Seed: ingested={seed_summary.get('ingested')} "
             f"total={seed_summary.get('jobs_total')} "
@@ -214,18 +217,21 @@ def _run_match_cycles(
     cycles: list[dict[str, Any]] = []
     deadline = time.time() + wait_seconds
 
+    # Cycle 1 is dirty (full-corpus scan for the just-ingested profile; clears
+    # rematch_needed). Follow-up cycles must be incremental: they match jobs
+    # extracted since the last completed cycle — dirty would select no users.
     first = _post_match(base_url, mode="dirty")
     cycles.append(first)
     extracts = int(first.get("extracts_enqueued") or 0)
     logger.info("poc cycle=1 extracts_enqueued=%s", extracts)
     if extracts:
         _wait_extracts(extracts, deadline)
-        second = _post_match(base_url, mode="dirty")
+        second = _post_match(base_url, mode="incremental")
         cycles.append(second)
         extracts = int(second.get("extracts_enqueued") or 0)
         if extracts:
             _wait_extracts(extracts, deadline)
-            third = _post_match(base_url, mode="dirty")
+            third = _post_match(base_url, mode="incremental")
             cycles.append(third)
 
     screens = 0

@@ -80,7 +80,7 @@ Re-POSTing the same `match_id` is a no-op. Pass + remaining quota enqueues `gene
 Generate a resume for a screened match (three skill buckets, cached work-history prefix, claim → source-span map), then verify it:
 
 ```bash
-# Live generation needs LLM_API_KEY (GENERATION_MODEL, default gemini-3.5-pro).
+# Live generation needs LLM_API_KEY (GENERATION_MODEL, default gemini-3.1-pro-preview).
 curl -s -X POST http://localhost:8080/handlers/generate-resume \
   -H 'content-type: application/json' \
   -d '{"match_id":"<match uuid>"}'

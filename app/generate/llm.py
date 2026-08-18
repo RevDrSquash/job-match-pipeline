@@ -189,10 +189,17 @@ class GeminiGenerateLLM:
                 user_text=job_context,
                 cache_name=cache_name,
             )
-        # Drop upstream args — errors can echo completion text (PI).
-        except PermanentLLMError:
+        # Drop upstream args — errors can echo completion text (PI). The
+        # classes and messages logged here are PI-safe by construction:
+        # classify_llm_status emits status codes, safe_exc emits exception
+        # class names, and parse errors carry positions, not content.
+        except PermanentLLMError as exc:
+            logger.warning("generate llm permanent failure cause=%s", exc)
             raise PermanentLLMError("generate llm permanent failure") from None
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "generate llm retryable failure cause=%s: %s", type(exc).__name__, exc
+            )
             raise RetryableLLMError("generate llm retryable failure") from None
         try:
             resume = GeneratedResume.model_validate(data)
@@ -304,8 +311,11 @@ class GeminiGenerateLLM:
             return None
         with _cache_lock:
             existing = _cache_names.get(cache_key)
-        if existing:
-            return existing
+        if existing is not None:
+            # "" is a negative entry: creation already failed for this key
+            # (e.g. prefix below the cache minimum) — don't burn a request
+            # per generate call re-attempting it.
+            return existing or None
         url = f"{self._api_base}/cachedContents"
         payload = {
             "model": f"models/{self._model}",
@@ -332,6 +342,9 @@ class GeminiGenerateLLM:
                 "generate-resume cache create skipped status=%s",
                 response.status_code,
             )
+            if 400 <= response.status_code < 500 and response.status_code != 429:
+                with _cache_lock:
+                    _cache_names[cache_key] = ""
             return None
         try:
             name = (response.json() or {}).get("name")

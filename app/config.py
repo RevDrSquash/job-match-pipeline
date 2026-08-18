@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     # generate-resume: best-available Gemini. Resume text IS personal
     # information — ZDR/no-training terms are a production blocker.
     # Model name lives here, never at call sites.
-    generation_model: str = "gemini-3.5-pro"
+    generation_model: str = "gemini-3.1-pro-preview"
     generation_input_usd_per_mtok: float = 1.25
     generation_output_usd_per_mtok: float = 10.00
 

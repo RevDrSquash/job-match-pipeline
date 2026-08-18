@@ -15,6 +15,7 @@ from typing import Any
 from app.config import Settings
 from app.evals.paths import read_json
 from app.evals.report import SuiteResult
+from app.evals.retry import call_with_retry
 from app.extract.llm import LLMUsage
 from app.generate.history import flatten_work_history_text, render_work_history_block
 from app.generate.llm import GenerateLLM, build_job_context
@@ -110,10 +111,13 @@ def run_fabrication_suite(
 
     for pair in pairs:
         job = pair.get("job") if isinstance(pair.get("job"), dict) else {}
-        generated, usage = generator.generate(
-            cache_prefix=render_work_history_block(work_history),
-            job_context=_job_context(pair, job, user_skill_ids, linker),
-            cache_key="eval-fabrication",
+        generated, usage = call_with_retry(
+            lambda pair=pair, job=job: generator.generate(
+                cache_prefix=render_work_history_block(work_history),
+                job_context=_job_context(pair, job, user_skill_ids, linker),
+                cache_key="eval-fabrication",
+            ),
+            label="fabrication generate",
         )
         prompt_tokens += usage.prompt_tokens
         completion_tokens += usage.completion_tokens
