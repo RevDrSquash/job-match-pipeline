@@ -80,7 +80,12 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
   the named alternative. The profile CLI and tests fall back to a small
   in-repo seed (`app/skills/taxonomy.py`, `esco:<slug>` placeholder IDs, pure
   data) when the `skills` table is empty; swapping the seed for the loaded
-  ESCO CSV is a data change, not a call-site change.
+  ESCO CSV is a data change, not a call-site change. **`extract-job` does not
+  get the seed fallback:** a loaded `skills` table is a hard prerequisite — an
+  empty table is a retryable config error checked before the LLM call
+  (`TASKS_AND_HANDLERS.md`, extract-job), because extraction results are
+  cached permanently and would otherwise be skill-less forever. The
+  `jobmatch poc run` live path fails fast on the same check.
 * **Migration tooling** — docs say "schema migration" without naming a tool; Alembic is the default for a FastAPI/Postgres stack.
 
 ## 7. Profile ingest LLM/embedding choices (PoC)

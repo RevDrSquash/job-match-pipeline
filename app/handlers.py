@@ -29,7 +29,7 @@ from app.ingest.fetch import fetch_link_list
 from app.ingest.store import ingest_posting
 from app.match.rerank import Reranker
 from app.match.service import match_batch
-from app.queue import TaskQueue
+from app.queue import BufferedTaskQueue, TaskQueue
 from app.screen.llm import GateLLM
 from app.screen.service import screen_job
 from app.skills.linker import SkillLinker
@@ -98,11 +98,12 @@ def create_handlers_router(
         body = payload.model_dump()
         record_received("fetch-link-list", body)
         company_id = _optional_uuid(body.get("company_id"))
+        buffer = BufferedTaskQueue(queue)
         try:
             with db_session() as session:
                 result = fetch_link_list(
                     session,
-                    queue,
+                    buffer,
                     company_id=company_id,
                     ats_provider=body.get("ats_provider"),
                     board_token=body.get("board_token"),
@@ -123,6 +124,7 @@ def create_handlers_router(
                 status_code=500, detail="retryable fetch-link-list failure"
             ) from None
 
+        buffer.flush()
         return {
             "status": "ok",
             "handler": "fetch-link-list",
@@ -212,12 +214,13 @@ def create_handlers_router(
     def match_batch_handler(payload: HandlerPayload) -> dict[str, Any]:
         body = payload.model_dump()
         record_received("match-batch", body)
+        buffer = BufferedTaskQueue(queue)
         try:
             with db_session() as session:
                 result = match_batch(
                     session,
                     body,
-                    queue,
+                    buffer,
                     reranker=match_reranker,
                     settings=settings,
                 )
@@ -238,6 +241,7 @@ def create_handlers_router(
                 status_code=500, detail="retryable match-batch failure"
             ) from None
 
+        buffer.flush()
         return {
             "status": "ok",
             "handler": "match-batch",
@@ -274,13 +278,14 @@ def create_handlers_router(
                 "cost_usd": 0.0,
                 "generate_enqueued": False,
             }
+        buffer = BufferedTaskQueue(queue)
         try:
             with db_session() as session:
                 try:
                     result = screen_job(
                         session,
                         body,
-                        queue,
+                        buffer,
                         llm=screen_llm,
                         settings=settings,
                     )
@@ -297,6 +302,7 @@ def create_handlers_router(
             logger.exception("screen-job unexpected failure")
             raise HTTPException(status_code=500, detail="retryable screen-job failure") from None
 
+        buffer.flush()
         return {
             "status": "ok",
             "handler": "screen-job",
@@ -330,13 +336,14 @@ def create_handlers_router(
                 "cost_usd": 0.0,
                 "verify_enqueued": False,
             }
+        buffer = BufferedTaskQueue(queue)
         try:
             with db_session() as session:
                 try:
                     result = generate_resume(
                         session,
                         body,
-                        queue,
+                        buffer,
                         llm=generate_llm,
                         linker=skill_linker,
                         settings=settings,
@@ -358,6 +365,7 @@ def create_handlers_router(
                 status_code=500, detail="retryable generate-resume failure"
             ) from None
 
+        buffer.flush()
         return {
             "status": "ok",
             "handler": "generate-resume",
@@ -424,13 +432,14 @@ def create_handlers_router(
                 "cost_usd": 0.0,
                 "regenerate_enqueued": False,
             }
+        buffer = BufferedTaskQueue(queue)
         try:
             with db_session() as session:
                 try:
                     result = verify_resume(
                         session,
                         body,
-                        queue,
+                        buffer,
                         llm=verify_llm,
                         linker=skill_linker,
                         settings=settings,
@@ -448,6 +457,7 @@ def create_handlers_router(
             logger.exception("verify-resume unexpected failure")
             raise HTTPException(status_code=500, detail="retryable verify-resume failure") from None
 
+        buffer.flush()
         return {
             "status": "ok",
             "handler": "verify-resume",

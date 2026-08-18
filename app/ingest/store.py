@@ -70,6 +70,10 @@ def ingest_posting(session: Session, payload: dict[str, Any]) -> IngestResult:
         "raw_jd": posting.raw_jd,
     }
 
+    # ingested_at is deliberately absent from the conflict update: redelivery /
+    # re-fetch of a known posting must not look like a new posting to the
+    # incremental match-batch predicate (ingested_at > last_cycle), or every
+    # re-seen posting would re-match, re-screen, and re-burn quota.
     stmt = (
         insert(Job)
         .values(**values)
@@ -87,7 +91,6 @@ def ingest_posting(session: Session, payload: dict[str, Any]) -> IngestResult:
                 "raw_jd": values["raw_jd"],
                 "posted_at": values["posted_at"],
                 "expires_at": values["expires_at"],
-                "ingested_at": values["ingested_at"],
                 "ats_provider": values["ats_provider"],
                 "source": values["source"],
                 "company_id": values["company_id"],

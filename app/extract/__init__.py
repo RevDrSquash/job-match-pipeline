@@ -5,6 +5,8 @@ from app.extract.llm import (
     JobExtraction,
     JobLLM,
     LLMUsage,
+    MalformedLLMOutputError,
+    PermanentLLMError,
     RetryableLLMError,
 )
 from app.extract.service import ExtractResult, extract_job
@@ -23,6 +25,8 @@ __all__ = [
     "JobExtraction",
     "JobLLM",
     "LLMUsage",
+    "MalformedLLMOutputError",
+    "PermanentLLMError",
     "RetryableLLMError",
     "build_synthesized_doc",
     "estimate_tokens",

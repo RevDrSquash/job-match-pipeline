@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, RetryableLLMError
+from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.generate.schema import GeneratedResume
 from app.generate.service import generate_resume
 from app.main import create_app
@@ -376,6 +376,35 @@ def test_verify_retryable_writes_event(db_session: Session) -> None:
     assert any(e.action == "retryable_error" for e in events)
     db_session.refresh(generation)
     assert generation.verify_status is None
+
+
+@requires_db
+def test_verify_permanent_llm_failure_flags_needs_review(db_session: Session) -> None:
+    """An unverifiable resume fails safe to needs_review — it must never be
+    delivered as if it passed, and must never be silently dropped."""
+    user = _add_user(db_session)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    generation = _add_generation(db_session, match)
+    queue = RecordingQueue()
+    result = verify_resume(
+        db_session,
+        {"generation_id": str(generation.id), "attempt": 1},
+        queue,
+        llm=FakeVerifyLLM(ground=PermanentLLMError("verify llm permanent failure")),
+        linker=_linker(),
+        settings=Settings(),
+    )
+    assert result.action == "llm_permanent_failure"
+    assert result.verify_status == "needs_review"
+    assert any("llm permanent failure" in item for item in result.verify_failures)
+    assert queue.tasks == []  # no regenerate loop on a broken verifier
+    db_session.refresh(generation)
+    assert generation.verify_status == "needs_review"
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+    ).all()
+    assert any(e.action == "llm_permanent_failure" for e in events)
 
 
 def _committed_generation() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:

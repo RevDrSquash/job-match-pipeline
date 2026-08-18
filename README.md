@@ -46,9 +46,10 @@ python -m app.seed --target 500
 
 The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. No LLM calls on this path.
 
-Extract a seeded job (lazy; cached on `extracted_at`):
+Extract a seeded job (lazy; cached on `extracted_at`). **Load the ESCO taxonomy first** (see [Skill taxonomy](#skill-taxonomy-esco)) — `extract-job` refuses to run against an empty `skills` table (retryable 503, checked before any LLM spend):
 
 ```bash
+# Hard prerequisite: python -m scripts.load_esco (once, idempotent).
 # Live extraction needs LLM_API_KEY or GEMINI_API_KEY.
 # EMBEDDING_PROVIDER=hashing (default) writes 768-d hashing vectors offline;
 # set EMBEDDING_PROVIDER=gemini to use gemini-embedding-001 (768-d truncation).
@@ -142,6 +143,8 @@ Incremental matches jobs ingested or extracted since the last completed cycle ag
 One command seeds the corpus, ingests the test profile, cycles `match-batch` until extracts and screens drain through the local queue, runs the four eval suites, and writes [`docs/POC_RESULTS.md`](docs/POC_RESULTS.md):
 
 ```bash
+# Hard prerequisite for the live path: python -m scripts.load_esco (the runner
+# fails fast if the skills table is empty).
 # Measurement run needs EMBEDDING_PROVIDER=gemini and LLM_API_KEY / GEMINI_API_KEY.
 # VERIFY_API_KEY / ANTHROPIC_API_KEY is required for verify-resume stages 2–3.
 jobmatch poc run --quota 3
@@ -150,7 +153,7 @@ jobmatch poc report   # rewrite the report from the current DB + latest eval JSO
 
 The default profile is `tests/fixtures/sample_resume.md` (same persona as `evals/sets/v1`). Do not commit a real resume. `QUEUE_IMPL=local` is required — the runner POSTs handlers; it does not call generate/verify functions directly.
 
-Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below); when the table is empty the CLI falls back to a small built-in seed taxonomy. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
+Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below). **The ESCO load is a hard prerequisite for the pipeline:** `extract-job` refuses to run against an empty `skills` table (retryable 503, checked before any LLM spend) because it would cache permanently skill-less extractions. The profile CLI alone still falls back to a small built-in seed taxonomy for offline use, but load ESCO before running any live extraction or match cycle. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
 
 Resume text is never written to application logs or exception traces. `profile show` prints the structured result to stdout for manual review.
 

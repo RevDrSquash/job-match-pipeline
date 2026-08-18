@@ -128,6 +128,8 @@ Two implementations:
 
 ~50 lines, and it is the *only* thing that differs between environments. Handlers are plain HTTP endpoints either way and don't know which they're running under. (Cloud Tasks emulators exist but the interface is less work and gives deterministic tests.)
 
+Handlers never enqueue directly mid-transaction: they wrap the queue in an environment-agnostic `BufferedTaskQueue` and flush after commit, so an immediately-delivered local task can't race the parent transaction and hit `not_found` (see `TASKS_AND_HANDLERS.md`, Conventions).
+
 ### Local stack
 
 * FastAPI, one POST endpoint per job type

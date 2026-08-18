@@ -10,7 +10,44 @@ import pytest
 from app.config import Settings, get_settings
 from app.handlers import clear_received, get_received
 from app.main import create_app
-from app.queue import LocalTaskQueue, get_task_queue
+from app.queue import BufferedTaskQueue, LocalTaskQueue, get_task_queue
+
+
+class _RecordingQueue:
+    def __init__(self) -> None:
+        self.tasks: list[tuple[str, dict, int | None]] = []
+
+    def enqueue(self, queue_name: str, payload: dict, delay: int | None = None) -> None:
+        self.tasks.append((queue_name, payload, delay))
+
+
+def test_buffered_queue_dispatches_only_on_flush() -> None:
+    """Handlers flush after commit so a child task can never race the parent
+    transaction and hit not_found (a permanent 2xx that loses the work)."""
+    inner = _RecordingQueue()
+    buffer = BufferedTaskQueue(inner)
+
+    buffer.enqueue("screen-job", {"match_id": "m-1"})
+    buffer.enqueue("extract-job", {"job_id": "j-1"}, delay=5)
+    assert inner.tasks == []  # nothing dispatched before flush (= before commit)
+
+    buffer.flush()
+    assert inner.tasks == [
+        ("screen-job", {"match_id": "m-1"}, None),
+        ("extract-job", {"job_id": "j-1"}, 5),
+    ]
+
+    buffer.flush()  # flush drains: no double dispatch
+    assert len(inner.tasks) == 2
+
+
+def test_buffered_queue_discards_when_never_flushed() -> None:
+    """A failed transaction (no flush) must not dispatch anything."""
+    inner = _RecordingQueue()
+    buffer = BufferedTaskQueue(inner)
+    buffer.enqueue("generate-resume", {"match_id": "m-1"})
+    del buffer
+    assert inner.tasks == []
 
 
 def _wait_for(predicate, timeout: float = 10.0, interval: float = 0.05) -> None:

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, RetryableLLMError
+from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.generate.llm import GENERATION_SYSTEM_PROMPT, GeminiGenerateLLM, build_job_context
 from app.generate.schema import Claim, GeneratedResume
 from app.generate.service import generate_resume
@@ -369,6 +369,35 @@ def test_generate_retryable_writes_event(db_session: Session) -> None:
         select(PipelineEvent).where(PipelineEvent.job_id == job.id)
     ).all()
     assert any(e.action == "retryable_error" for e in events)
+
+
+@requires_db
+def test_generate_permanent_llm_failure_is_2xx_no_generation(db_session: Session) -> None:
+    """A poison generate response (400 / twice-malformed output) must not
+    become a 5xx that re-pays the frontier model on every redelivery."""
+    user = _add_user(db_session)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    queue = RecordingQueue()
+    result = generate_resume(
+        db_session,
+        {"match_id": str(match.id)},
+        queue,
+        llm=FakeGenerateLLM(PermanentLLMError("generate llm permanent failure")),
+        linker=_linker(),
+        settings=Settings(),
+    )
+    assert result.action == "llm_permanent_failure"
+    assert result.generation_id is None
+    assert queue.tasks == []  # no verify-resume for a resume that was never made
+    rows = db_session.scalars(
+        select(Generation).where(Generation.match_id == match.id)
+    ).all()
+    assert rows == []
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+    ).all()
+    assert any(e.action == "llm_permanent_failure" for e in events)
 
 
 def _committed_match() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:

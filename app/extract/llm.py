@@ -73,7 +73,38 @@ Do not fabricate employers, skills, years, or compensation.
 
 
 class RetryableLLMError(Exception):
-    """LLM/embed transport or 5xx/429 — handler should return 5xx."""
+    """LLM/embed transport, 5xx/429, or config error — handler should return 5xx."""
+
+
+class PermanentLLMError(Exception):
+    """Non-transient LLM outcome — handler logs, records the event, returns 2xx.
+
+    Covers request-level HTTP 400 (poison payload; retrying burns queue
+    attempts for the same answer) and billed completions that stay malformed
+    after one in-process retry (temperature is 0 — a repeat retry pays full
+    price for the same bad output).
+    """
+
+
+class MalformedLLMOutputError(PermanentLLMError):
+    """A billed completion that failed to parse — retried once in-process."""
+
+
+def classify_llm_status(status_code: int, *, provider: str = "llm") -> None:
+    """Raise on non-2xx statuses with retryable/permanent classification.
+
+    408/429/5xx are transient. 401/403/404 are operator config errors (bad key
+    or model name): they affect every task and bill no tokens, so they stay
+    retryable rather than silently dropping work as permanent. Any other 4xx
+    is a poison request — permanent.
+    """
+    if status_code < 400:
+        return
+    if status_code in {408, 429} or status_code >= 500:
+        raise RetryableLLMError(f"{provider} HTTP {status_code}")
+    if status_code in {401, 403, 404}:
+        raise RetryableLLMError(f"{provider} HTTP {status_code} (config)")
+    raise PermanentLLMError(f"{provider} HTTP {status_code}")
 
 
 class JobExtraction(BaseModel):
@@ -155,9 +186,10 @@ def parse_json_object(text: str) -> dict[str, Any]:
     try:
         data = json.loads(stripped)
     except json.JSONDecodeError as exc:
-        raise RetryableLLMError(f"unparseable LLM JSON: {exc}") from exc
+        # JSONDecodeError messages carry positions, not content — safe to keep.
+        raise MalformedLLMOutputError(f"unparseable LLM JSON: {exc.msg}") from None
     if not isinstance(data, dict):
-        raise RetryableLLMError("LLM JSON was not an object")
+        raise MalformedLLMOutputError("LLM JSON was not an object")
     return data
 
 
@@ -173,7 +205,13 @@ def gemini_generate_json(
     output_usd_per_mtok: float,
     timeout: float = 45.0,
 ) -> tuple[dict[str, Any], LLMUsage]:
-    """Structured Gemini generateContent. Raises RetryableLLMError on transport/5xx."""
+    """Structured Gemini generateContent.
+
+    Raises RetryableLLMError on transport/5xx/429/config statuses and
+    PermanentLLMError on request-level 4xx. A billed-but-malformed completion
+    is retried once in-process, then raised as PermanentLLMError so a poison
+    prompt cannot burn spend on every queue redelivery.
+    """
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
@@ -184,29 +222,49 @@ def gemini_generate_json(
         },
     }
     url = f"{api_base.rstrip('/')}/models/{model}:generateContent"
-    try:
-        response = httpx.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            json=payload,
-            timeout=timeout,
-        )
-    except httpx.HTTPError as exc:
-        raise RetryableLLMError(f"llm transport error: {type(exc).__name__}") from exc
+    last_malformed: MalformedLLMOutputError | None = None
+    for attempt in (1, 2):
+        try:
+            response = httpx.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json=payload,
+                timeout=timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise RetryableLLMError(f"llm transport error: {type(exc).__name__}") from exc
 
-    if response.status_code in {429, 500, 502, 503, 504} or response.status_code >= 500:
-        raise RetryableLLMError(f"llm HTTP {response.status_code}")
-    if response.status_code >= 400:
-        # Auth / quota / bad request: retry after operator fix.
-        raise RetryableLLMError(f"llm HTTP {response.status_code}")
+        classify_llm_status(response.status_code)
+        try:
+            return _parse_gemini_body(
+                response,
+                model=model,
+                input_usd_per_mtok=input_usd_per_mtok,
+                output_usd_per_mtok=output_usd_per_mtok,
+            )
+        except MalformedLLMOutputError as exc:
+            last_malformed = exc
+            logger.warning(
+                "llm malformed output model=%s attempt=%s: %s", model, attempt, exc
+            )
+    assert last_malformed is not None
+    raise last_malformed
 
+
+def _parse_gemini_body(
+    response: httpx.Response,
+    *,
+    model: str,
+    input_usd_per_mtok: float,
+    output_usd_per_mtok: float,
+) -> tuple[dict[str, Any], LLMUsage]:
     try:
         body = response.json()
-    except ValueError as exc:
-        raise RetryableLLMError("llm response was not JSON") from exc
+    except ValueError:
+        raise MalformedLLMOutputError("llm response was not JSON") from None
 
     usage_meta = body.get("usageMetadata") or {}
     prompt_tokens = int(usage_meta.get("promptTokenCount") or 0)
@@ -223,15 +281,25 @@ def gemini_generate_json(
         ),
     )
 
+    # Malformed completions are still billed — carry usage in the message so
+    # the retry warning logs token counts for the failed attempt too.
+    usage_note = (
+        f"(prompt_tokens={usage.prompt_tokens} "
+        f"completion_tokens={usage.completion_tokens} "
+        f"cost_usd={usage.cost_usd:.6f})"
+    )
     candidates = body.get("candidates") or []
     if not candidates:
-        raise RetryableLLMError("llm returned no candidates")
+        raise MalformedLLMOutputError(f"llm returned no candidates {usage_note}")
     parts = ((candidates[0].get("content") or {}).get("parts")) or []
     text = "".join(str(part.get("text") or "") for part in parts)
     if not text.strip():
-        raise RetryableLLMError("llm returned empty content")
+        raise MalformedLLMOutputError(f"llm returned empty content {usage_note}")
 
-    return parse_json_object(text), usage
+    try:
+        return parse_json_object(text), usage
+    except MalformedLLMOutputError as exc:
+        raise MalformedLLMOutputError(f"{exc} {usage_note}") from None
 
 
 class GeminiJobLLM:
@@ -275,4 +343,8 @@ class GeminiJobLLM:
             output_usd_per_mtok=self._output_usd_per_mtok,
             timeout=self._timeout,
         )
-        return JobExtraction.model_validate(data), usage
+        try:
+            return JobExtraction.model_validate(data), usage
+        except Exception:
+            # temperature=0: a redelivery would pay for the same bad output.
+            raise PermanentLLMError("extraction llm invalid structured output") from None

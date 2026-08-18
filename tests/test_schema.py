@@ -115,15 +115,16 @@ def test_url_hash_upsert(db_session: Session) -> None:
     )
     db_session.flush()
 
+    # Mirrors app/ingest/store.py: metadata is refreshed on conflict but
+    # ingested_at is not, so redelivery never looks like a new posting.
     updated = db_session.execute(
         text(
             """
             INSERT INTO jobs (url_hash, title, ingested_at)
             VALUES (:url_hash, :title, :ingested_at)
             ON CONFLICT (url_hash) DO UPDATE
-            SET title = EXCLUDED.title,
-                ingested_at = EXCLUDED.ingested_at
-            RETURNING id, title
+            SET title = EXCLUDED.title
+            RETURNING id, title, ingested_at
             """
         ),
         {
@@ -135,6 +136,7 @@ def test_url_hash_upsert(db_session: Session) -> None:
 
     assert updated.id == job_id
     assert updated.title == "Updated title"
+    assert updated.ingested_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @requires_db

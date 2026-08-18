@@ -72,7 +72,9 @@ def test_cli_ingest_show_edit_roundtrip(
     get_settings.cache_clear()
 
     resume = tmp_path / "resume.md"
-    resume.write_text(FIXTURE.read_text(encoding="utf-8"))
+    # encoding matters: without it Windows writes cp1252, mangling the em/en
+    # dashes the role-header and date-range parsing depend on.
+    resume.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
 
     user_id = None
     try:

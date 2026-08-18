@@ -15,7 +15,15 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import Settings, get_settings
-from app.extract.llm import LLMUsage, RetryableLLMError, parse_json_object, usage_cost
+from app.extract.llm import (
+    LLMUsage,
+    MalformedLLMOutputError,
+    PermanentLLMError,
+    RetryableLLMError,
+    classify_llm_status,
+    parse_json_object,
+    usage_cost,
+)
 from app.privacy import safe_exc
 
 logger = logging.getLogger(__name__)
@@ -61,7 +69,8 @@ class VerifyDecision(BaseModel):
     def normalized(self) -> VerifyDecision:
         verdict = (self.verdict or "").strip().lower()
         if verdict not in {"pass", "fail"}:
-            raise RetryableLLMError("verify llm invalid verdict")
+            # temperature=0: a redelivery would pay for the same bad output.
+            raise PermanentLLMError("verify llm invalid verdict")
         cleaned = [str(item).strip() for item in self.violations if str(item).strip()]
         return VerifyDecision(
             verdict=verdict,
@@ -171,25 +180,38 @@ class AnthropicVerifyLLM:
             "system": system,
             "messages": [{"role": "user", "content": user_text}],
         }
-        try:
-            response = httpx.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": self._api_key,
-                    "anthropic-version": ANTHROPIC_VERSION,
-                },
-                json=payload,
-                timeout=self._timeout,
-            )
-        except httpx.HTTPError as exc:
-            raise RetryableLLMError("verify llm retryable failure") from safe_exc(
-                "verify llm transport error", exc
-            )
+        last_malformed: MalformedLLMOutputError | None = None
+        for attempt in (1, 2):
+            try:
+                response = httpx.post(
+                    url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": self._api_key,
+                        "anthropic-version": ANTHROPIC_VERSION,
+                    },
+                    json=payload,
+                    timeout=self._timeout,
+                )
+            except httpx.HTTPError as exc:
+                raise RetryableLLMError("verify llm retryable failure") from safe_exc(
+                    "verify llm transport error", exc
+                )
 
-        if response.status_code >= 400:
-            raise RetryableLLMError(f"verify llm HTTP {response.status_code}")
+            classify_llm_status(response.status_code, provider="verify llm")
+            try:
+                return self._parse_body(response)
+            except MalformedLLMOutputError as exc:
+                # One in-process retry for a billed-but-malformed completion,
+                # then permanent — never retry via the queue at full price.
+                last_malformed = exc
+                logger.warning(
+                    "verify llm malformed output attempt=%s: %s", attempt, exc
+                )
+        assert last_malformed is not None
+        raise last_malformed
 
+    def _parse_body(self, response: httpx.Response) -> tuple[VerifyDecision, LLMUsage]:
         try:
             body = response.json()
             blocks = body.get("content") or []
@@ -202,10 +224,7 @@ class AnthropicVerifyLLM:
             prompt_tokens = int(usage_meta.get("input_tokens") or 0)
             completion_tokens = int(usage_meta.get("output_tokens") or 0)
         except (TypeError, ValueError, AttributeError):
-            raise RetryableLLMError("verify llm invalid response") from None
-
-        if not text.strip():
-            raise RetryableLLMError("verify llm empty content")
+            raise MalformedLLMOutputError("verify llm invalid response") from None
 
         usage = LLMUsage(
             model=self._model,
@@ -218,13 +237,26 @@ class AnthropicVerifyLLM:
                 output_usd_per_mtok=self._output_usd_per_mtok,
             ),
         )
+        usage_note = (
+            f"(prompt_tokens={usage.prompt_tokens} "
+            f"completion_tokens={usage.completion_tokens} "
+            f"cost_usd={usage.cost_usd:.6f})"
+        )
+        if not text.strip():
+            raise MalformedLLMOutputError(f"verify llm empty content {usage_note}")
         try:
             data = parse_json_object(text)
             decision = VerifyDecision.model_validate(data).normalized()
-        except RetryableLLMError:
-            raise RetryableLLMError("verify llm invalid structured output") from None
+        except PermanentLLMError:
+            # Includes MalformedLLMOutputError from parse and the deterministic
+            # invalid-verdict case. Sanitized: no completion text in args.
+            raise MalformedLLMOutputError(
+                f"verify llm invalid structured output {usage_note}"
+            ) from None
         except Exception:
-            raise RetryableLLMError("verify llm invalid structured output") from None
+            raise MalformedLLMOutputError(
+                f"verify llm invalid structured output {usage_note}"
+            ) from None
         return decision, usage
 
 

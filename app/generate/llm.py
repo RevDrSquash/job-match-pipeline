@@ -18,7 +18,10 @@ from app.config import Settings, get_settings
 from app.extract.llm import (
     DEFAULT_GEMINI_API_BASE,
     LLMUsage,
+    MalformedLLMOutputError,
+    PermanentLLMError,
     RetryableLLMError,
+    classify_llm_status,
     parse_json_object,
     usage_cost,
 )
@@ -186,14 +189,18 @@ class GeminiGenerateLLM:
                 user_text=job_context,
                 cache_name=cache_name,
             )
+        # Drop upstream args — errors can echo completion text (PI).
+        except PermanentLLMError:
+            raise PermanentLLMError("generate llm permanent failure") from None
         except Exception:
             raise RetryableLLMError("generate llm retryable failure") from None
         try:
             resume = GeneratedResume.model_validate(data)
         except Exception:
-            raise RetryableLLMError("generate llm invalid structured output") from None
+            # temperature=0: a redelivery would pay for the same bad output.
+            raise PermanentLLMError("generate llm invalid structured output") from None
         if not (resume.resume_doc or "").strip():
-            raise RetryableLLMError("generate llm empty resume")
+            raise PermanentLLMError("generate llm empty resume")
         return resume, usage
 
     def _generate_json(
@@ -226,26 +233,39 @@ class GeminiGenerateLLM:
                 }
             ]
         url = f"{self._api_base}/models/{self._model}:generateContent"
-        try:
-            response = httpx.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self._api_key,
-                },
-                json=payload,
-                timeout=self._timeout,
-            )
-        except httpx.HTTPError as exc:
-            raise safe_exc("generate llm transport error", exc) from None
+        last_malformed: MalformedLLMOutputError | None = None
+        for attempt in (1, 2):
+            try:
+                response = httpx.post(
+                    url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self._api_key,
+                    },
+                    json=payload,
+                    timeout=self._timeout,
+                )
+            except httpx.HTTPError as exc:
+                raise safe_exc("generate llm transport error", exc) from None
 
-        if response.status_code >= 400:
-            raise RetryableLLMError(f"llm HTTP {response.status_code}")
+            classify_llm_status(response.status_code)
+            try:
+                return self._parse_body(response)
+            except MalformedLLMOutputError as exc:
+                # One in-process retry for a billed-but-malformed completion,
+                # then permanent — never retry via the queue at full price.
+                last_malformed = exc
+                logger.warning(
+                    "generate llm malformed output attempt=%s: %s", attempt, exc
+                )
+        assert last_malformed is not None
+        raise last_malformed
 
+    def _parse_body(self, response: httpx.Response) -> tuple[dict[str, Any], LLMUsage]:
         try:
             body = response.json()
         except ValueError:
-            raise RetryableLLMError("llm response was not JSON") from None
+            raise MalformedLLMOutputError("llm response was not JSON") from None
 
         usage_meta = body.get("usageMetadata") or {}
         prompt_tokens = int(usage_meta.get("promptTokenCount") or 0)
@@ -261,14 +281,23 @@ class GeminiGenerateLLM:
                 output_usd_per_mtok=self._output_usd_per_mtok,
             ),
         )
+        usage_note = (
+            f"(prompt_tokens={usage.prompt_tokens} "
+            f"completion_tokens={usage.completion_tokens} "
+            f"cost_usd={usage.cost_usd:.6f})"
+        )
         candidates = body.get("candidates") or []
         if not candidates:
-            raise RetryableLLMError("llm returned no candidates")
+            raise MalformedLLMOutputError(f"llm returned no candidates {usage_note}")
         parts = ((candidates[0].get("content") or {}).get("parts")) or []
         text = "".join(str(part.get("text") or "") for part in parts)
         if not text.strip():
-            raise RetryableLLMError("llm returned empty content")
-        return parse_json_object(text), usage
+            raise MalformedLLMOutputError(f"llm returned empty content {usage_note}")
+        try:
+            return parse_json_object(text), usage
+        except MalformedLLMOutputError as exc:
+            # parse_json_object messages carry positions, not content — safe.
+            raise MalformedLLMOutputError(f"{exc} {usage_note}") from None
 
     def _cached_content_name(self, cache_prefix: str, cache_key: str | None) -> str | None:
         if not cache_key or not cache_prefix.strip():

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, RetryableLLMError
+from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.main import create_app
 from app.queue import LocalTaskQueue
 from app.screen.llm import GATE_SYSTEM_PROMPT, GateDecision, GeminiGateLLM
@@ -155,7 +155,9 @@ def test_gate_decision_normalizes_and_rejects_bad_verdict() -> None:
     ).normalized()
     assert parsed.verdict == "pass"
     assert parsed.confidence == 1.0
-    with pytest.raises(RetryableLLMError):
+    # temperature=0 + enforced schema: a bad verdict is deterministic — retrying
+    # via the queue would pay for the same bad output, so it is permanent.
+    with pytest.raises(PermanentLLMError):
         GateDecision(verdict="maybe", reason="x", confidence=0.1).normalized()
 
 
@@ -397,6 +399,34 @@ def test_retryable_llm_writes_event(db_session: Session) -> None:
         select(PipelineEvent).where(PipelineEvent.job_id == job.id)
     ).all()
     assert any(e.action == "retryable_error" for e in events)
+
+
+@requires_db
+def test_permanent_llm_failure_is_2xx_and_leaves_match_screenable(
+    db_session: Session,
+) -> None:
+    """A poison gate response must not retry (5xx) or fabricate a verdict."""
+    user = _add_user(db_session, quota_remaining=3)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    queue = RecordingQueue()
+    result = screen_job(
+        db_session,
+        {"match_id": str(match.id)},
+        queue,
+        llm=FakeGateLLM(PermanentLLMError("gate llm permanent failure")),
+        settings=Settings(),
+    )
+    assert result.action == "llm_permanent_failure"
+    assert queue.tasks == []
+    db_session.refresh(match)
+    assert match.gate_verdict is None  # no fabricated verdict
+    db_session.refresh(user)
+    assert user.quota_remaining == 3  # quota untouched
+    events = db_session.scalars(
+        select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+    ).all()
+    assert any(e.action == "llm_permanent_failure" for e in events)
 
 
 def _committed_match(**overrides: object) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:

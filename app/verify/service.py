@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import Generation, Job, Match, UserProfile
-from app.extract.llm import RetryableLLMError
+from app.extract.llm import PermanentLLMError, RetryableLLMError
 from app.generate.buckets import (
     assemble_skill_buckets,
     job_terminology_text,
@@ -195,6 +195,41 @@ def verify_resume(
         )
         if coverage.verdict == "fail":
             llm_failures.extend(_prefix("coverage", coverage.violations, coverage.reason))
+    except PermanentLLMError as exc:
+        # Fail safe: an unverifiable resume must never be delivered as if it
+        # passed. Flag for human review instead of dropping the generation.
+        named = [item.named() for item in stage1] + ["verify: llm permanent failure"]
+        _write_status(generation, STATUS_NEEDS_REVIEW, named)
+        logger.info(
+            "verify-resume permanent failure action=llm_permanent_failure "
+            "generation_id=%s error=%s",
+            generation.id,
+            exc,
+        )
+        record_pipeline_event(
+            session,
+            stage=STAGE,
+            action="llm_permanent_failure",
+            user_id=match.user_id,
+            job_id=match.job_id,
+            details=usage_details(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost_usd=cost_usd,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                generation_id=str(generation.id),
+            ),
+        )
+        session.flush()
+        return VerifyResult(
+            action="llm_permanent_failure",
+            generation_id=str(generation.id),
+            verify_status=STATUS_NEEDS_REVIEW,
+            verify_failures=named,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=cost_usd,
+        )
     except RetryableLLMError:
         record_pipeline_event(
             session,
