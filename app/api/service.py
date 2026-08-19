@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, Generation, Job, Match, PipelineEvent, User
+from app.db.models import Company, Generation, Job, Match, PipelineEvent, Skill, User
 from app.ingest.events import record_pipeline_event
 from app.poc.measure import collect_measurements
 from app.privacy import PrivacySafeError
@@ -51,7 +52,7 @@ def list_users(session: Session) -> list[dict[str, Any]]:
 
 def get_profile(session: Session, user_id: uuid.UUID) -> dict[str, Any]:
     bundle = show_profile(session, user_id)
-    return bundle_to_dict(bundle)
+    return _profile_payload(session, bundle_to_dict(bundle))
 
 
 def list_matches(
@@ -80,6 +81,13 @@ def list_matches(
         session, match_ids=[match.id for match, _job, _company in rows]
     )
 
+    skill_ids: set[str] = set()
+    for match, _job, _company in rows:
+        skill_ids.update(match.matched_skills or [])
+        skill_ids.update(match.adjacent_skills or [])
+        skill_ids.update(match.missing_skills or [])
+    label_map = _skill_labels(session, skill_ids)
+
     return [
         _match_payload(
             match,
@@ -87,6 +95,7 @@ def list_matches(
             company_name,
             ui_state=ui_by_job.get(match.job_id, _empty_ui_state()),
             generation_id=generation_by_match.get(match.id),
+            label_map=label_map,
         )
         for match, job, company_name in rows
     ]
@@ -106,6 +115,12 @@ def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]
     ui_state = _ui_state_by_job(
         session, user_id=match.user_id, job_ids=[match.job_id]
     ).get(match.job_id, _empty_ui_state())
+    label_map = _skill_labels(
+        session,
+        set(match.matched_skills or [])
+        | set(match.adjacent_skills or [])
+        | set(match.missing_skills or []),
+    )
     return {
         "id": str(generation.id),
         "match_id": str(match.id),
@@ -127,9 +142,9 @@ def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]
             "rerank_score": match.rerank_score,
             "gate_verdict": match.gate_verdict,
             "gate_reason": match.gate_reason,
-            "matched_skills": list(match.matched_skills or []),
-            "adjacent_skills": list(match.adjacent_skills or []),
-            "missing_skills": list(match.missing_skills or []),
+            "matched_skills": _skill_refs(match.matched_skills, label_map),
+            "adjacent_skills": _skill_refs(match.adjacent_skills, label_map),
+            "missing_skills": _skill_refs(match.missing_skills, label_map),
         },
         "ui": ui_state,
     }
@@ -211,7 +226,7 @@ def patch_profile(
         embedder=deps.embedder,
         linker=deps.linker,
     )
-    payload = bundle_to_dict(bundle)
+    payload = _profile_payload(session, bundle_to_dict(bundle))
     payload["rescan_message"] = RESCAN_MESSAGE
     return payload
 
@@ -408,6 +423,14 @@ def _latest_generation_by_match(
     return latest
 
 
+def _profile_payload(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    skill_ids = list(payload.get("skill_ids") or [])
+    label_map = _skill_labels(session, set(skill_ids))
+    enriched = dict(payload)
+    enriched["skills"] = _skill_refs(skill_ids, label_map)
+    return enriched
+
+
 def _match_payload(
     match: Match,
     job: Job,
@@ -415,6 +438,7 @@ def _match_payload(
     *,
     ui_state: dict[str, Any],
     generation_id: uuid.UUID | None,
+    label_map: dict[str, str],
 ) -> dict[str, Any]:
     return {
         "id": str(match.id),
@@ -428,12 +452,31 @@ def _match_payload(
         "rerank_score": match.rerank_score,
         "gate_verdict": match.gate_verdict,
         "gate_reason": match.gate_reason,
-        "matched_skills": list(match.matched_skills or []),
-        "adjacent_skills": list(match.adjacent_skills or []),
-        "missing_skills": list(match.missing_skills or []),
+        "matched_skills": _skill_refs(match.matched_skills, label_map),
+        "adjacent_skills": _skill_refs(match.adjacent_skills, label_map),
+        "missing_skills": _skill_refs(match.missing_skills, label_map),
         "generation_id": str(generation_id) if generation_id else None,
         "ui": ui_state,
     }
+
+
+def _skill_labels(session: Session, skill_ids: set[str]) -> dict[str, str]:
+    if not skill_ids:
+        return {}
+    rows = session.execute(
+        select(Skill.id, Skill.canonical_label).where(Skill.id.in_(skill_ids))
+    ).all()
+    return {row.id: row.canonical_label for row in rows}
+
+
+def _skill_refs(
+    skill_ids: Sequence[str] | None,
+    label_map: dict[str, str],
+) -> list[dict[str, str]]:
+    return [
+        {"id": skill_id, "label": label_map.get(skill_id, skill_id)}
+        for skill_id in skill_ids or []
+    ]
 
 
 def _empty_ui_state() -> dict[str, Any]:

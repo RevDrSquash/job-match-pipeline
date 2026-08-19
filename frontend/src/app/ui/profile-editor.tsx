@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import styles from "@/app/dashboard.module.css";
 import { fetchProfile, fetchUsers, updateProfile } from "@/lib/api";
+import { skillDisplayLabel } from "@/lib/skills";
 import type {
   Profile,
   User,
@@ -349,6 +350,18 @@ function ProfileContent({
             </div>
             <div className={styles.panelBody}>
               <div className={styles.fields}>
+                {(profile.skills ?? []).length > 0 && (
+                  <div className={styles.field}>
+                    <span className={styles.fieldLabel}>Linked skills</span>
+                    <div className={styles.chips}>
+                      {(profile.skills ?? []).map((skill) => (
+                        <span className={styles.chip} key={skill.id}>
+                          {skillDisplayLabel(skill)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className={styles.field}>
                   <label htmlFor="profile-skills">Canonical skill IDs</label>
                   <textarea

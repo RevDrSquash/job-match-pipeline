@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import Company, Generation, Job, Match, PipelineEvent, User, UserProfile
+from app.db.models import Company, Generation, Job, Match, PipelineEvent, Skill, User, UserProfile
 from app.extract.embed import HashingDocumentEmbedder
 from app.ingest.events import record_pipeline_event
 from app.main import create_app
@@ -154,6 +154,8 @@ def test_get_profile(api_client: TestClient, db_session: Session) -> None:
     assert body["user_id"] == str(user.id)
     assert body["profile_version"] >= 1
     assert "filters" in body
+    assert "skills" in body
+    assert isinstance(body["skills"], list)
 
 
 @requires_db
@@ -254,7 +256,12 @@ def test_get_generation(api_client: TestClient, db_session: Session) -> None:
     assert body["resume_doc"] == "# Resume\n"
     assert body["verify_status"] == "passed"
     assert body["job"]["url"] == "https://boards.example/j/99"
-    assert body["match"]["matched_skills"] == ["esco:python"]
+    assert body["match"]["matched_skills"] == [
+        {"id": "esco:python", "label": "esco:python"}
+    ]
+    assert body["match"]["missing_skills"] == [
+        {"id": "esco:terraform", "label": "esco:terraform"}
+    ]
     assert body["ui"]["applied_at"] is None
 
 
@@ -288,6 +295,47 @@ def test_admin_metrics(api_client: TestClient, db_session: Session) -> None:
     assert "extraction_coverage" in body
     assert "gate_rejection_rate" in body
     assert body["funnel"]["applied"] >= 1
+
+
+@requires_db
+def test_skill_labels_resolve_from_taxonomy(
+    api_client: TestClient, db_session: Session
+) -> None:
+    user = _seed_user(db_session)
+    job = _add_company_job(db_session)
+    db_session.add_all(
+        [
+            Skill(id="esco:python", canonical_label="Python", alt_labels=[]),
+            Skill(id="esco:terraform", canonical_label="Terraform", alt_labels=[]),
+        ]
+    )
+    match = _add_match(db_session, user, job, gate_verdict="pass")
+    db_session.flush()
+
+    response = api_client.get("/api/matches", params={"user_id": str(user.id)})
+    assert response.status_code == 200
+    row = next(item for item in response.json()["matches"] if item["id"] == str(match.id))
+    assert row["matched_skills"] == [{"id": "esco:python", "label": "Python"}]
+    assert row["missing_skills"] == [{"id": "esco:terraform", "label": "Terraform"}]
+
+    profile = api_client.get("/api/profile", params={"user_id": str(user.id)})
+    assert profile.status_code == 200
+    profile_body = profile.json()
+    assert {"id": "esco:python", "label": "Python"} in profile_body["skills"]
+
+
+@requires_db
+def test_skill_labels_fall_back_to_id_when_unknown(
+    api_client: TestClient, db_session: Session
+) -> None:
+    user = _seed_user(db_session)
+    job = _add_company_job(db_session)
+    match = _add_match(db_session, user, job, gate_verdict="pass")
+
+    response = api_client.get("/api/matches", params={"user_id": str(user.id)})
+    assert response.status_code == 200
+    row = next(item for item in response.json()["matches"] if item["id"] == str(match.id))
+    assert row["matched_skills"][0] == {"id": "esco:python", "label": "esco:python"}
 
 
 @requires_db

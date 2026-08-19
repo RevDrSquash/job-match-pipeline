@@ -10,7 +10,8 @@ import {
   recordMatchEvent,
   requestGeneration,
 } from "@/lib/api";
-import type { Match, User } from "@/lib/types";
+import type { Match, SkillRef, User } from "@/lib/types";
+import { skillDisplayLabel } from "@/lib/skills";
 import styles from "@/app/dashboard.module.css";
 
 const SKIP_REASONS = [
@@ -20,14 +21,6 @@ const SKIP_REASONS = [
   ["wrong_seniority", "Seniority mismatch"],
   ["other", "Other"],
 ] as const;
-
-function skillLabel(value: string) {
-  const raw = value.split(":").at(-1) ?? value;
-  return raw
-    .split(/[-_]/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
 
 function formatComp(min: number | null, max: number | null) {
   if (min === null && max === null) return "Comp not listed";
@@ -46,7 +39,7 @@ function SkillChips({
   skills,
   tone = "matched",
 }: {
-  skills: string[];
+  skills: SkillRef[];
   tone?: "matched" | "adjacent" | "missing";
 }) {
   const toneClass =
@@ -59,8 +52,8 @@ function SkillChips({
     <div className={styles.chips}>
       {skills.length ? (
         skills.map((skill) => (
-          <span className={`${styles.chip} ${toneClass}`} key={skill}>
-            {skillLabel(skill)}
+          <span className={`${styles.chip} ${toneClass}`} key={skill.id}>
+            {skillDisplayLabel(skill)}
           </span>
         ))
       ) : (

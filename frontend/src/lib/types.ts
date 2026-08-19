@@ -1,3 +1,8 @@
+export type SkillRef = {
+  id: string;
+  label: string;
+};
+
 export type User = {
   id: string;
   tier: string;
@@ -28,9 +33,9 @@ export type Match = {
   rerank_score: number | null;
   gate_verdict: "pass" | "reject";
   gate_reason: string | null;
-  matched_skills: string[];
-  adjacent_skills: string[];
-  missing_skills: string[];
+  matched_skills: SkillRef[];
+  adjacent_skills: SkillRef[];
+  missing_skills: SkillRef[];
   generation_id: string | null;
   ui: MatchUiState;
 };
@@ -66,6 +71,7 @@ export type Profile = {
   rematch_needed: boolean;
   work_history: WorkHistoryEntry[];
   skill_ids: string[];
+  skills: SkillRef[];
   synthesized_doc: string | null;
   embedding_dim: number | null;
   filters: ProfileFilters;
@@ -93,9 +99,9 @@ export type Generation = {
     rerank_score: number | null;
     gate_verdict: string | null;
     gate_reason: string | null;
-    matched_skills: string[];
-    adjacent_skills: string[];
-    missing_skills: string[];
+    matched_skills: SkillRef[];
+    adjacent_skills: SkillRef[];
+    missing_skills: SkillRef[];
   };
   ui: MatchUiState;
 };

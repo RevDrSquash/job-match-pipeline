@@ -5,11 +5,11 @@ import { useMemo, useState } from "react";
 
 import styles from "@/app/dashboard.module.css";
 import { recordMatchEvent } from "@/lib/api";
-import type { Generation } from "@/lib/types";
+import { skillDisplayLabel } from "@/lib/skills";
+import type { Generation, SkillRef } from "@/lib/types";
 
-function skillLabel(value: string) {
-  const raw = value.split(":").at(-1) ?? value;
-  return raw.replaceAll("_", " ").replaceAll("-", " ");
+function formatSkillList(skills: SkillRef[]) {
+  return skills.map(skillDisplayLabel).join(", ") || "None listed";
 }
 
 function verifyTone(status: string | null) {
@@ -45,11 +45,9 @@ function buildContextBlock(generation: Generation) {
     `Source: ${generation.job.url}`,
     "",
     "## Fit report",
-    `Matched skills: ${generation.match.matched_skills.map(skillLabel).join(", ") || "None listed"}`,
-    `Adjacent skills: ${generation.match.adjacent_skills.map(skillLabel).join(", ") || "None listed"}`,
-    `Missing skills (do not claim): ${
-      generation.match.missing_skills.map(skillLabel).join(", ") || "None listed"
-    }`,
+    `Matched skills: ${formatSkillList(generation.match.matched_skills)}`,
+    `Adjacent skills: ${formatSkillList(generation.match.adjacent_skills)}`,
+    `Missing skills (do not claim): ${formatSkillList(generation.match.missing_skills)}`,
     `Gate reasoning: ${generation.match.gate_reason ?? "No gate note"}`,
     "",
     `Verification status: ${generation.verify_status ?? "pending"}`,

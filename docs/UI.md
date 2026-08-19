@@ -250,8 +250,8 @@ Read endpoints (thin queries over existing models):
 | Endpoint | Purpose |
 | -- | -- |
 | `GET /api/users` | id, tier, quota |
-| `GET /api/profile?user_id=` | profile + filters (same shape as `jobmatch profile show`) |
-| `GET /api/matches?user_id=&view=matched\|screened_out` | match cards with job metadata, skill buckets, gate fields, latest UI state |
+| `GET /api/profile?user_id=` | profile + filters + resolved `skills` labels (same base shape as `jobmatch profile show`) |
+| `GET /api/matches?user_id=&view=matched\|screened_out` | match cards with job metadata, skill buckets as `{id, label}`, gate fields, latest UI state |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
 | `GET /api/admin/metrics` | funnel counts, extraction coverage %, gate rejection rate, LLM spend |
 
@@ -264,6 +264,8 @@ Write endpoints:
 | `POST /api/matches/{id}/generate` | enqueue `generate-resume`; no-op when a generation already exists |
 
 Resume upload stays CLI-only for this milestone.
+
+Skill buckets in match and generation payloads, and the profile `skills` field, are objects `{id, label}` where `id` is the canonical ESCO concept URI (or PoC `esco:slug`) and `label` is resolved from the `skills` taxonomy table (`canonical_label`). Unknown ids echo the id as the label.
 
 ### UI feedback event vocabulary
 
