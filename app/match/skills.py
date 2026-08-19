@@ -21,7 +21,7 @@ _SIBLING_LABEL_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"amazon web services", "google cloud platform", "microsoft azure"}),
     frozenset({"terraform", "aws cloudformation", "cloudformation", "ansible"}),
     frozenset({"docker", "kubernetes", "helm"}),
-    frozenset({"postgresql", "mysql", "sqlite"}),
+    frozenset({"postgresql", "mysql", "sqlite", "sql"}),
     frozenset({"react", "vue.js", "angular"}),
     frozenset({"django", "flask", "fastapi"}),
     frozenset({"pytorch", "tensorflow", "scikit-learn"}),

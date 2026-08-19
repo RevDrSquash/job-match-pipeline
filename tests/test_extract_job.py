@@ -112,6 +112,8 @@ def test_hard_nice_prompt_is_explicit() -> None:
     lowered = EXTRACTION_SYSTEM_PROMPT.lower()
     assert "must-haves" in lowered or "must-have" in lowered
     assert "deterministic gate" in EXTRACTION_SYSTEM_PROMPT
+    assert "one skill" in lowered
+    assert "never a comma- or slash-separated" in lowered
 
 
 def test_fixture_jd_structured_shape_and_one_chunk_bound() -> None:
@@ -383,7 +385,14 @@ def test_extract_seeded_posting_populates_fields(db_session: Session) -> None:
     events = db_session.scalars(
         select(PipelineEvent).where(PipelineEvent.stage == "extract-job")
     ).all()
-    assert any(e.action == "extracted" and e.job_id == job.id for e in events)
+    extracted_events = [
+        e for e in events if e.action == "extracted" and e.job_id == job.id
+    ]
+    assert extracted_events
+    details = extracted_events[0].details or {}
+    assert details.get("skill_spans") == SAMPLE_EXTRACTION.skill_spans
+    assert details.get("linked_skill_ids") == job.skill_ids
+    assert "Redis" in (details.get("unlinked_spans") or [])
 
 
 @requires_db

@@ -10,6 +10,7 @@ from app.skills import (
     HashingEmbedder,
     InMemorySkillLinker,
     SkillRecord,
+    expand_compound_span,
     link_spans,
     normalize_label,
 )
@@ -50,6 +51,30 @@ def linker() -> InMemorySkillLinker:
 def test_normalize_label_collapses_noise() -> None:
     assert normalize_label("  Python. ") == "python"
     assert normalize_label("C++") == "c++"
+
+
+def test_expand_compound_span_splits_lists() -> None:
+    assert expand_compound_span("Python") == ["Python"]
+    assert expand_compound_span("Python, Rust, and TypeScript") == [
+        "Python, Rust, and TypeScript",
+        "Python",
+        "Rust",
+        "TypeScript",
+    ]
+    assert expand_compound_span("React/GraphQL") == [
+        "React/GraphQL",
+        "React",
+        "GraphQL",
+    ]
+    assert expand_compound_span("") == []
+
+
+def test_link_spans_splits_compound_and_dedups(linker: InMemorySkillLinker) -> None:
+    linked = linker.link_spans(["Python, Rust, and TypeScript", "AWS"])
+    assert linked == [PYTHON_ID, AWS_ID]
+    report = linker.link_span_report(["Python / AWS", "xyzzy-not-a-skill-qqq"])
+    assert report.skill_ids == [PYTHON_ID, AWS_ID]
+    assert report.unlinked_spans == ["xyzzy-not-a-skill-qqq"]
 
 
 def test_surface_variants_resolve_to_one_entity(linker: InMemorySkillLinker) -> None:

@@ -133,7 +133,7 @@ Handlers never enqueue directly mid-transaction: they wrap the queue in an envir
 ### Local stack
 
 * FastAPI, one POST endpoint per job type
-* `docker-compose`: pgvector Postgres image + app container
+* `docker-compose`: pgvector Postgres image + app container. The app service loads host `.env` via `env_file` (keys, `EMBEDDING_PROVIDER`); compose `environment:` still wins for `DATABASE_URL` / `QUEUE_IMPL` / `LOCAL_QUEUE_BASE_URL`.
 * Same schema as Cloud SQL
 * `QUEUE_IMPL` env var selects the implementation
 * Seed with a few hundred real postings, run the full pipeline locally

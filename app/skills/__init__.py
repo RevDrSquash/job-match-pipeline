@@ -17,9 +17,10 @@ from app.skills.linker import (
     ScanHit,
     SkillLinker,
     SkillRecord,
+    SpanLinkReport,
     link_spans,
 )
-from app.skills.normalize import normalize_label
+from app.skills.normalize import expand_compound_span, normalize_label
 
 __all__ = [
     "Embedder",
@@ -29,7 +30,9 @@ __all__ = [
     "ScanHit",
     "SkillLinker",
     "SkillRecord",
+    "SpanLinkReport",
     "build_span_embedder",
+    "expand_compound_span",
     "link_spans",
     "linker_from_records",
     "linker_from_session",

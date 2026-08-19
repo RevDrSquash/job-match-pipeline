@@ -21,6 +21,11 @@ services:
     build: .
     ports:
       - "8080:8080"
+    # Host .env supplies LLM/embedding keys and EMBEDDING_PROVIDER. The
+    # environment: block wins for in-network URLs so localhost DB/queue
+    # values from .env cannot leak into the container.
+    env_file:
+      - .env
     environment:
       QUEUE_IMPL: local
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/jobmatch

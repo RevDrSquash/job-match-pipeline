@@ -13,7 +13,7 @@ from typing import Protocol, runtime_checkable
 
 from app.skills.embeddings import Embedder, HashingEmbedder, cosine_similarity
 from app.skills.enrich import AMBIGUOUS_SCAN_TERMS, derived_alias_index
-from app.skills.normalize import normalize_label
+from app.skills.normalize import expand_compound_span, normalize_label
 
 # Conservative hashing defaults: scores are not calibrated like a trained
 # model; require a strong match and otherwise refuse to link. Margin 0 keeps
@@ -56,6 +56,14 @@ class ScanHit:
 
     skill_id: str
     matched_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class SpanLinkReport:
+    """``link_spans`` result plus the original spans that produced no id."""
+
+    skill_ids: list[str]
+    unlinked_spans: list[str]
 
 
 @dataclass
@@ -165,15 +173,39 @@ class InMemorySkillLinker:
         )
 
     def link_spans(self, spans: list[str]) -> list[str]:
+        return self.link_span_report(spans).skill_ids
+
+    def link_span_report(self, spans: list[str]) -> SpanLinkReport:
+        """Link spans, splitting compound lists, and report leftovers.
+
+        Each input is expanded (commas / slashes / ``and`` / ``or``) and
+        every fragment is linked once. Order follows first successful
+        fragment. Spans whose fragments all refuse to link are returned
+        in ``unlinked_spans`` (original surface form).
+        """
         linked: list[str] = []
-        seen: set[str] = set()
+        seen_ids: set[str] = set()
+        cache: dict[str, str | None] = {}
+        unlinked: list[str] = []
         for span in spans:
-            skill_id = self.link_span(span)
-            if skill_id is None or skill_id in seen:
+            candidates = expand_compound_span(span)
+            if not candidates:
                 continue
-            seen.add(skill_id)
-            linked.append(skill_id)
-        return linked
+            span_linked = False
+            for candidate in candidates:
+                key = candidate.casefold()
+                if key not in cache:
+                    cache[key] = self.link_span(candidate)
+                skill_id = cache[key]
+                if skill_id is None:
+                    continue
+                span_linked = True
+                if skill_id not in seen_ids:
+                    seen_ids.add(skill_id)
+                    linked.append(skill_id)
+            if not span_linked:
+                unlinked.append(span)
+        return SpanLinkReport(skill_ids=linked, unlinked_spans=unlinked)
 
     def labels_for(self, skill_ids: Sequence[str]) -> list[str]:
         """Preferred labels for linked ids (unknown ids echo the id)."""
