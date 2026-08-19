@@ -47,7 +47,6 @@ function ProfileContent({
   onSaved: (profile: Profile) => void;
 }) {
   const [history, setHistory] = useState<WorkHistoryEntry[]>(profile.work_history);
-  const [skills, setSkills] = useState(listValue(profile.skill_ids));
   const [titles, setTitles] = useState(listValue(profile.filters.title_families));
   const [locations, setLocations] = useState(listValue(profile.filters.locations));
   const [seniority, setSeniority] = useState(profile.filters.seniority_band ?? "");
@@ -100,7 +99,6 @@ function ProfileContent({
       const result = await updateProfile({
         user_id: profile.user_id,
         work_history: history,
-        skill_ids: parseList(skills),
         title_families: parseList(titles),
         locations: parseList(locations),
         work_arrangement: arrangements,
@@ -362,16 +360,6 @@ function ProfileContent({
                     </div>
                   </div>
                 )}
-                <div className={styles.field}>
-                  <label htmlFor="profile-skills">Canonical skill IDs</label>
-                  <textarea
-                    className={styles.monospace}
-                    id="profile-skills"
-                    value={skills}
-                    onChange={(event) => setSkills(event.target.value)}
-                  />
-                  <span className={styles.fieldHint}>Comma separated ESCO IDs</span>
-                </div>
                 <div className={styles.field}>
                   <span className={styles.fieldLabel}>Synthesized profile</span>
                   <div className={styles.profileSummary}>
