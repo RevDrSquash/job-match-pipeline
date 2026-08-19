@@ -1,6 +1,6 @@
 # UI Design
 
-> **Status: preliminary.** Surfaces and constraints agreed; no visual design, framework choice, or wireframes yet. The purpose of this document is to make sure v1 doesn't foreclose features we know we want.
+> **Status: partially implemented.** Surfaces and constraints agreed. Framework is decided (server-rendered Next.js App Router — see Hosting), and a local single-user cut is implemented (see "Local UI milestone" at the end). No visual design or wireframes for v1 yet; the purpose of this document is still to make sure v1 doesn't foreclose features we know we want.
 
 ## Principles
 
@@ -221,7 +221,7 @@ Business metrics — indexed jobs, users, cost, revenue — plus the operational
 
 ## Hosting
 
-**Decided: separate Cloud Run service, server-rendered.** Not a static bundle on a CDN. The deciding argument is SEO — public job search is a plausible organic acquisition channel, and server-rendered pages index far better than a client-rendered SPA.
+**Decided: separate Cloud Run service, server-rendered Next.js (App Router).** Not a static bundle on a CDN. The deciding argument is SEO — public job search is a plausible organic acquisition channel, and server-rendered pages index far better than a client-rendered SPA.
 
 Both services sit behind one load balancer on a single domain (`/api/*` → API, `/*` → frontend), which keeps session cookies first-party and avoids CORS entirely. Cloud CDN still fronts the frontend, so static assets are edge-cached — this is a rendering-model choice, not a decision against caching.
 
@@ -231,9 +231,54 @@ Both services sit behind one load balancer on a single domain (`/api/*` → API,
 
 ## Open questions
 
-* Frontend framework (server-rendered is decided; the framework is not)
 * SEO indexing strategy given deliberately thin public pages — per-posting, or search/category pages only?
 * Does the paste-ready block target a specific browser extension, or is it format-agnostic clipboard content?
 * Resume output templating — do users choose a template, or do we impose one?
 * Dirty-profile re-match cadence — hourly, or user-visible "re-scan now" with a rate limit?
 * Do we expect friction complaints from withholding the source link on public search? Users can find a posting by searching title + company anyway, so the gate is soft — it costs a little goodwill for a little conversion.
+
+## Local UI milestone (PoC)
+
+**Decided:** Next.js App Router in `frontend/` as a separate service. The browser talks to a user-facing API mounted at `/api/*` on the existing FastAPI app — distinct from internal `/handlers/*` pipeline workers. Locally, Next.js rewrites proxy `/api/*` to FastAPI on `:8080`, mirroring the single-domain production shape (`/api/*` → API, `/*` → frontend).
+
+**Single-user model:** no auth. `GET /api/users` lists users; the frontend auto-selects when there is exactly one CLI-ingested profile and offers a picker otherwise. All endpoints take an explicit `user_id`.
+
+### API layer
+
+Read endpoints (thin queries over existing models):
+
+| Endpoint | Purpose |
+| -- | -- |
+| `GET /api/users` | id, tier, quota |
+| `GET /api/profile?user_id=` | profile + filters (same shape as `jobmatch profile show`) |
+| `GET /api/matches?user_id=&view=matched\|screened_out` | match cards with job metadata, skill buckets, gate fields, latest UI state |
+| `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
+| `GET /api/admin/metrics` | funnel counts, extraction coverage %, gate rejection rate, LLM spend |
+
+Write endpoints:
+
+| Endpoint | Purpose |
+| -- | -- |
+| `PATCH /api/profile` | same service path as `jobmatch profile edit`; response includes re-scan messaging |
+| `POST /api/matches/{id}/events` | feedback actions (vocabulary below) |
+| `POST /api/matches/{id}/generate` | enqueue `generate-resume`; no-op when a generation already exists |
+
+Resume upload stays CLI-only for this milestone.
+
+### UI feedback event vocabulary
+
+Every action writes to `pipeline_events` with `stage="ui"`.
+
+| Action | Semantics | `details` |
+| -- | -- | -- |
+| `viewed` | Baseline exposure | — (deduped: at most one row per user + job) |
+| `skipped` | Negative label / correction | `reason_code` (enum) + optional `reason_text` |
+| `generate_requested` | Positive intent before generation completes | — |
+| `marked_applied` | Strong pre-outcome label | `applied_at` (ISO-8601; server defaults to now) |
+| `outcome` | Post-application result | `outcome`: `interview` \| `rejected` (no-response is the absence of a row) |
+
+`reason_code` values: `not_interested`, `wrong_location`, `wrong_comp`, `wrong_seniority`, `disagree_with_gate` (screened-out corrections), `other`.
+
+### Explicitly out of scope (this cut)
+
+OAuth/signup, public search, "Do I qualify?", quota/billing UI, email digest, resume upload UI, PDF/docx export, rate limiting (no unauthenticated public endpoints yet).

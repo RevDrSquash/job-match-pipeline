@@ -1,0 +1,80 @@
+import type {
+  Generation,
+  Match,
+  Profile,
+  User,
+} from "@/lib/types";
+
+type JsonRecord = Record<string, unknown>;
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) message = body.detail;
+    } catch {
+      // Keep the status-based message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function fetchUsers(): Promise<User[]> {
+  const result = await request<{ users: User[] }>("/api/users");
+  return result.users;
+}
+
+export async function fetchMatches(
+  userId: string,
+  view: "matched" | "screened_out",
+): Promise<Match[]> {
+  const query = new URLSearchParams({ user_id: userId, view });
+  const result = await request<{ matches: Match[] }>(`/api/matches?${query}`);
+  return result.matches;
+}
+
+export function fetchProfile(userId: string): Promise<Profile> {
+  const query = new URLSearchParams({ user_id: userId });
+  return request<Profile>(`/api/profile?${query}`);
+}
+
+export function updateProfile(body: JsonRecord): Promise<Profile> {
+  return request<Profile>("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function recordMatchEvent(
+  matchId: string,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request<JsonRecord>(`/api/matches/${matchId}/events`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function requestGeneration(
+  matchId: string,
+): Promise<{
+  action: "enqueued" | "skipped_existing";
+  generation_id: string | null;
+}> {
+  return request(`/api/matches/${matchId}/generate`, { method: "POST" });
+}
+
+export function fetchGeneration(generationId: string): Promise<Generation> {
+  return request<Generation>(`/api/generations/${generationId}`);
+}

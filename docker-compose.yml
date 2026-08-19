@@ -29,5 +29,19 @@ services:
       db:
         condition: service_healthy
 
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_BASE_URL: http://app:8080
+    ports:
+      # Host 3100: Windows (Hyper-V/WSL) often reserves an excluded port range
+      # covering 3000, which fails binds with EACCES. Container side stays 3000.
+      - "3100:3000"
+    environment:
+      API_BASE_URL: http://app:8080
+    depends_on:
+      - app
+
 volumes:
   pgdata:

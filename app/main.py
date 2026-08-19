@@ -6,6 +6,7 @@ import logging
 
 from fastapi import FastAPI
 
+from app.api import create_api_router
 from app.config import Settings, get_settings
 from app.extract.embed import DocumentEmbedder
 from app.extract.llm import JobLLM
@@ -42,6 +43,7 @@ def create_app(
     application = FastAPI(title="Job Match Pipeline", version="0.1.0")
     application.state.settings = settings
     application.state.queue = queue
+    application.include_router(create_api_router())
     application.include_router(
         create_handlers_router(
             queue,

@@ -163,3 +163,10 @@ Two invariants make the future layer possible; keep them:
 ## 10. User deletion / anonymization path is unimplemented
 
 `docs/PRIVACY_AND_COMPLIANCE.md` ("Deletion — design for it now") requires a cascade that strips or deletes user-side rows, including `pipeline_events` linkage. The schema is ready — `pipeline_events.user_id` is nullable with no FK (DEF-16, §4) so anonymization can null the column without deleting the training row — but there is no delete or anonymize path in the app. Fine for the local PoC (no real user data). A working path is required before any real resume is stored.
+
+## 11. Deferred from the local UI milestone
+
+The local UI cut (`docs/UI.md`, "Local UI milestone") ships the match feed, screened-out view, profile editor, generation handoff, and admin dashboard, but defers two designed features that need decisions before v1:
+
+* **PDF / docx resume export.** The handoff screen offers markdown download and a paste-ready context block only. Real export needs the templating decision already listed in UI.md's open questions (do users choose a template, or do we impose one?) plus a rendering dependency; don't pick a library before picking a templating answer.
+* **Email digest one-click outcome links.** The digest's one-click buttons ("got interview" / "rejected" on applied jobs) are the highest-yield placement for the most valuable label, but they require an authenticated-by-token link design — a signed, expiring, single-purpose token that can write one `outcome` event without a session. That token scheme (scope, expiry, revocation on account deletion) is undesigned; the local milestone has no auth at all, so nothing here constrains it yet. Design it together with the auth/session work, not before.

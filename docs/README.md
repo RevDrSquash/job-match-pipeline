@@ -11,6 +11,6 @@
 | [EVALUATION.md](EVALUATION.md) | Per-stage eval strategy; the four non-negotiable evals; label bootstrapping |
 | [PRIVACY_AND_COMPLIANCE.md](PRIVACY_AND_COMPLIANCE.md) | PIPEDA / BC PIPA analysis, model selection and data residency, deletion design |
 | [POSTING_SOURCES.md](POSTING_SOURCES.md) | OpenPostings reference, license blocker, volume reconciliation, company registry plan |
-| [UI.md](UI.md) | Surfaces, free-tier public search, feedback capture, admin dashboard, hosting |
+| [UI.md](UI.md) | Surfaces, free-tier public search, feedback capture, admin dashboard, hosting, local UI milestone (Next.js + `/api/*` layer) |
 | [OPEN_ISSUES.md](OPEN_ISSUES.md) | Inconsistencies and deferred decisions found during doc review — not blocking the local proof of concept |
 | [POC_RESULTS.md](POC_RESULTS.md) | Local proof-of-concept measurement report (DEF-25) |

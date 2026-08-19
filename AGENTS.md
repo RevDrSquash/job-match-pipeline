@@ -6,7 +6,7 @@ Job Match Pipeline: ingest job postings from ATS providers, extract and canonica
 
 `docs/` is canonical for all design decisions — read the docs relevant to your task before writing code. `docs/README.md` is the index. The Linear issues reference specific sections; follow those references. If a design question isn't answered in `docs/`, check `docs/OPEN_ISSUES.md` before inventing an answer.
 
-Current milestone: local proof of concept only. No GCP resources, no Terraform, no UI — everything runs against docker-compose with `QUEUE_IMPL=local`.
+Current milestone: local proof of concept only. No GCP resources, no Terraform — everything runs against docker-compose with `QUEUE_IMPL=local`. The UI is a local single-user Next.js app (`frontend/`) talking to the user-facing `/api/*` router; see `docs/UI.md`, "Local UI milestone". No auth, no public endpoints.
 
 ## Hard rules (never violate)
 
