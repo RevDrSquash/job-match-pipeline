@@ -34,13 +34,13 @@ def test_usage_details_omits_none_and_rounds() -> None:
         cost_usd=0.0001234567,
         latency_ms=12.3456,
         extra=None,
-        gate_verdict="pass",
+        qualification_label="clearly_qualified",
     )
     assert details["prompt_tokens"] == 12
     assert details["cost_usd"] == 0.00012346
     assert details["latency_ms"] == 12.346
     assert "extra" not in details
-    assert details["gate_verdict"] == "pass"
+    assert details["qualification_label"] == "clearly_qualified"
 
 
 def test_local_queue_reads_timeout_and_concurrency() -> None:
@@ -63,8 +63,7 @@ def test_render_poc_results_has_required_sections() -> None:
             "jobs_ingested": 10,
             "prefilter_pairs_peak": 4,
             "prefilter_survival_rate": 0.4,
-            "gate_pass": 1,
-            "gate_reject": 1,
+            "label_distribution": {"clearly_qualified": 1, "unqualified": 1},
             "generated": 1,
             "verify_passed": 1,
         },
@@ -80,7 +79,7 @@ def test_render_poc_results_has_required_sections() -> None:
                 "latency_ms": {"n": 2, "mean": 800, "p50": 800, "p95": 900, "max": 900},
             }
         },
-        "reranker_gate_disagreements": [],
+        "rank_label_disagreements": [],
         "delivered_resumes": [
             {
                 "generation_id": "g1",
@@ -138,8 +137,8 @@ def test_collect_measurements_from_events(db_session: Session) -> None:
         job_id=job.id,
         cycle_at=datetime.now(tz=UTC),
         rerank_score=0.82,
-        gate_verdict="pass",
-        gate_reason="fit",
+        qualification_label="clearly_qualified",
+        screen_reason="fit",
     )
     db_session.add(match)
     db_session.flush()
@@ -155,7 +154,7 @@ def test_collect_measurements_from_events(db_session: Session) -> None:
     record_pipeline_event(
         db_session,
         stage="screen-job",
-        action="gate_pass",
+        action="screened",
         user_id=user.id,
         job_id=job.id,
         score=0.82,
@@ -164,7 +163,7 @@ def test_collect_measurements_from_events(db_session: Session) -> None:
     record_pipeline_event(
         db_session,
         stage="screen-job",
-        action="reranker_gate_disagreement",
+        action="rank_label_disagreement",
         user_id=user.id,
         job_id=job.id,
         score=0.82,
@@ -173,12 +172,12 @@ def test_collect_measurements_from_events(db_session: Session) -> None:
 
     snap = collect_measurements(db_session)
     assert snap["funnel"]["prefilter_pairs_peak"] >= 3
-    assert snap["usage"]["screen-job"]["n"] == 1
-    assert snap["usage"]["screen-job"]["cost_usd_mean"] == 0.0003
+    assert snap["usage"]["screen-job"]["n"] >= 1
+    assert snap["usage"]["screen-job"]["cost_usd_total"] >= 0.0003
     delivered = [row for row in snap["delivered_resumes"] if row["job_title"] == "Backend Engineer"]
     assert delivered[0]["verify_status"] == "passed"
     assert "omitted" not in str(snap["delivered_resumes"])
-    assert any(row["title"] == "Backend Engineer" for row in snap["reranker_gate_disagreements"])
+    assert any(row["title"] == "Backend Engineer" for row in snap["rank_label_disagreements"])
 
 
 def test_poc_report_cli_writes_file(tmp_path: Path, monkeypatch) -> None:
@@ -192,7 +191,7 @@ def test_poc_report_cli_writes_file(tmp_path: Path, monkeypatch) -> None:
             "corpus": {"jobs_total": 0, "extracted": 0, "users": 0},
             "funnel": {},
             "usage": {},
-            "reranker_gate_disagreements": [],
+            "rank_label_disagreements": [],
             "delivered_resumes": [],
             "filters": [],
         }

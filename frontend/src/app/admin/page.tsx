@@ -17,8 +17,7 @@ const FUNNEL_STAGES = [
   ["prefilter_pairs_peak", "Prefiltered"],
   ["jobs_extracted", "Jobs extracted"],
   ["matches_written_peak", "Reranked"],
-  ["screened", "Gate screened"],
-  ["gate_pass", "Gate passed"],
+  ["screened", "Screened"],
   ["generated", "Generated"],
   ["applied", "Applied"],
 ] as const;
@@ -83,8 +82,8 @@ export default async function AdminPage() {
           <p className={styles.eyebrow}>Pipeline health</p>
           <h1>See where candidates move—and where they stop.</h1>
           <p>
-            A server-rendered snapshot of corpus coverage, gate behavior, funnel
-            volume, and recorded LLM spend.
+            A server-rendered snapshot of corpus coverage, screen-label
+            distribution, funnel volume, and recorded LLM spend.
           </p>
         </div>
         <span className={styles.timestamp}>
@@ -99,9 +98,11 @@ export default async function AdminPage() {
           <small>Share of ingested jobs with structured extraction</small>
         </article>
         <article className={styles.metricCard}>
-          <span>Gate rejection rate</span>
-          <strong>{percent(metrics.gate_rejection_rate)}</strong>
-          <small>Rejected among all gate-screened matches</small>
+          <span>Clearly qualified</span>
+          <strong>
+            {metrics.label_distribution?.clearly_qualified?.toLocaleString() ?? "0"}
+          </strong>
+          <small>Matches labeled clearly qualified</small>
         </article>
         <article className={styles.metricCard}>
           <span>LLM spend recorded</span>
@@ -137,6 +138,22 @@ export default async function AdminPage() {
                   </div>
                 );
               })}
+              {Object.entries(metrics.label_distribution ?? {}).map(([key, value]) => (
+                <div className={styles.funnelRow} key={key}>
+                  <span className={styles.funnelLabel}>
+                    {key.replaceAll("_", " ")}
+                  </span>
+                  <div className={styles.funnelTrack} aria-hidden="true">
+                    <div
+                      className={styles.funnelFill}
+                      style={{ width: `${(value / maxFunnelValue) * 100}%` }}
+                    />
+                  </div>
+                  <span className={styles.funnelValue}>
+                    {value.toLocaleString()}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </section>

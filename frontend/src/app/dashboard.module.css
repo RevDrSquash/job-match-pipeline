@@ -190,6 +190,32 @@
   background: var(--amber-soft);
 }
 
+.labelBadge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.labelHigh {
+  color: var(--green-dark);
+  background: var(--green-soft);
+}
+
+.labelMid {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.labelLow {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.labelUnscreened {
+  color: var(--muted);
+  background: #f0f3f1;
+}
+
 .matchTitle {
   margin-bottom: 5px;
   font-size: 23px;

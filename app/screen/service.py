@@ -1,4 +1,4 @@
-"""screen-job business logic: deterministic gate + cheap LLM + quota."""
+"""screen-job business logic: hard-req overlap + cheap LLM label + optional generate."""
 
 from __future__ import annotations
 
@@ -17,24 +17,22 @@ from app.extract.llm import PermanentLLMError, RetryableLLMError
 from app.ingest.events import record_pipeline_event, usage_details
 from app.privacy import log_profile_access
 from app.queue import TaskQueue
-from app.screen.gate import (
-    hard_requirement_overlap,
-    is_reranker_gate_disagreement,
-)
+from app.quota import try_consume_quota
+from app.screen.gate import hard_requirement_overlap, is_rank_label_disagreement
+from app.screen.labels import AUTO_GENERATE_LABEL
 from app.screen.llm import GateLLM, build_gate_llm, log_gate_usage
 
 logger = logging.getLogger(__name__)
 
 STAGE = "screen-job"
 _REASON_MAX_CHARS = 2000
-_MISSING_DOCS_REASON = "missing condensed job or profile document"
 
 
 @dataclass
 class ScreenResult:
     action: str
     match_id: str | None
-    gate_verdict: str | None = None
+    qualification_label: str | None = None
     hard_req_missing_count: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -68,7 +66,7 @@ def screen_job(
         session.flush()
         return ScreenResult(action="not_found", match_id=str(match_uuid))
 
-    if match.gate_verdict is not None:
+    if match.qualification_label is not None:
         logger.info("screen-job no-op action=skipped_screened match_id=%s", match.id)
         record_pipeline_event(
             session,
@@ -82,7 +80,7 @@ def screen_job(
         return ScreenResult(
             action="skipped_screened",
             match_id=str(match.id),
-            gate_verdict=match.gate_verdict,
+            qualification_label=match.qualification_label,
         )
 
     job = session.get(Job, match.job_id)
@@ -110,69 +108,75 @@ def screen_job(
         overlap.missing_count,
     )
 
-    usage_tokens = (0, 0, 0.0)
-    latency_ms = 0.0
-    if overlap.exceeds_drop_threshold(settings.hard_req_missing_drop_threshold):
-        verdict = "reject"
-        reason = (
-            f"missing {overlap.missing_count} hard-requirement skills "
-            f"(threshold {settings.hard_req_missing_drop_threshold})"
+    job_doc = (job.synthesized_doc or "").strip()
+    profile_doc = (profile.synthesized_doc or "").strip() if profile else ""
+    if not job_doc or not profile_doc:
+        logger.info(
+            "screen-job permanent failure action=missing_docs match_id=%s",
+            match.id,
         )
-        confidence = 1.0
-    else:
-        job_doc = (job.synthesized_doc or "").strip()
-        profile_doc = (profile.synthesized_doc or "").strip() if profile else ""
-        if not job_doc or not profile_doc:
-            verdict = "reject"
-            reason = _MISSING_DOCS_REASON
-            confidence = 1.0
-        else:
-            try:
-                started = time.perf_counter()
-                active_llm = llm if llm is not None else build_gate_llm(settings)
-                decision, usage = active_llm.screen(job_doc=job_doc, profile_doc=profile_doc)
-                latency_ms = (time.perf_counter() - started) * 1000
-            except PermanentLLMError as exc:
-                # Leave gate_verdict NULL: the match stays screenable if the
-                # task is ever re-driven, but this delivery must not retry.
-                logger.info(
-                    "screen-job permanent failure action=llm_permanent_failure "
-                    "match_id=%s error=%s",
-                    match.id,
-                    exc,
-                )
-                record_pipeline_event(
-                    session,
-                    stage=STAGE,
-                    action="llm_permanent_failure",
-                    user_id=match.user_id,
-                    job_id=match.job_id,
-                    score=match.rerank_score,
-                )
-                session.flush()
-                return ScreenResult(
-                    action="llm_permanent_failure",
-                    match_id=str(match.id),
-                    hard_req_missing_count=overlap.missing_count,
-                )
-            except RetryableLLMError:
-                record_pipeline_event(
-                    session,
-                    stage=STAGE,
-                    action="retryable_error",
-                    user_id=match.user_id,
-                    job_id=match.job_id,
-                    score=match.rerank_score,
-                )
-                session.flush()
-                raise
-            log_gate_usage(usage, match_id=str(match.id))
-            usage_tokens = (usage.prompt_tokens, usage.completion_tokens, usage.cost_usd)
-            verdict = decision.verdict
-            reason = decision.reason
-            confidence = decision.confidence
+        record_pipeline_event(
+            session,
+            stage=STAGE,
+            action="missing_docs",
+            user_id=match.user_id,
+            job_id=match.job_id,
+            score=match.rerank_score,
+            details={"hard_req_missing_count": overlap.missing_count},
+        )
+        session.flush()
+        return ScreenResult(
+            action="missing_docs",
+            match_id=str(match.id),
+            hard_req_missing_count=overlap.missing_count,
+        )
 
-    written = _write_verdict(session, match, verdict=verdict, reason=reason)
+    try:
+        started = time.perf_counter()
+        active_llm = llm if llm is not None else build_gate_llm(settings)
+        decision, usage = active_llm.screen(job_doc=job_doc, profile_doc=profile_doc)
+        latency_ms = (time.perf_counter() - started) * 1000
+    except PermanentLLMError as exc:
+        # Leave qualification_label NULL: the match stays screenable if the
+        # task is ever re-driven, but this delivery must not retry.
+        logger.info(
+            "screen-job permanent failure action=llm_permanent_failure "
+            "match_id=%s error=%s",
+            match.id,
+            exc,
+        )
+        record_pipeline_event(
+            session,
+            stage=STAGE,
+            action="llm_permanent_failure",
+            user_id=match.user_id,
+            job_id=match.job_id,
+            score=match.rerank_score,
+        )
+        session.flush()
+        return ScreenResult(
+            action="llm_permanent_failure",
+            match_id=str(match.id),
+            hard_req_missing_count=overlap.missing_count,
+        )
+    except RetryableLLMError:
+        record_pipeline_event(
+            session,
+            stage=STAGE,
+            action="retryable_error",
+            user_id=match.user_id,
+            job_id=match.job_id,
+            score=match.rerank_score,
+        )
+        session.flush()
+        raise
+
+    log_gate_usage(usage, match_id=str(match.id))
+    label = decision.label
+    reason = decision.reason
+    confidence = decision.confidence
+
+    written = _write_label(session, match, label=label, reason=reason)
     if not written:
         logger.info("screen-job no-op action=skipped_screened match_id=%s", match.id)
         record_pipeline_event(
@@ -188,17 +192,17 @@ def screen_job(
         return ScreenResult(
             action="skipped_screened",
             match_id=str(match.id),
-            gate_verdict=match.gate_verdict,
+            qualification_label=match.qualification_label,
             hard_req_missing_count=overlap.missing_count,
-            prompt_tokens=usage_tokens[0],
-            completion_tokens=usage_tokens[1],
-            cost_usd=usage_tokens[2],
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
         )
 
     generate_enqueued = False
-    action = f"gate_{verdict}"
-    if verdict == "pass":
-        if _try_consume_quota(session, match.user_id):
+    action = "screened"
+    if label == AUTO_GENERATE_LABEL:
+        if try_consume_quota(session, match.user_id):
             queue.enqueue(
                 "generate-resume",
                 {
@@ -208,7 +212,6 @@ def screen_job(
                 },
             )
             generate_enqueued = True
-            action = "gate_pass"
         else:
             action = "quota_exhausted"
             logger.info(
@@ -225,83 +228,73 @@ def screen_job(
         job_id=match.job_id,
         score=match.rerank_score,
         details=usage_details(
-            prompt_tokens=usage_tokens[0],
-            completion_tokens=usage_tokens[1],
-            cost_usd=usage_tokens[2],
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
             latency_ms=latency_ms,
             hard_req_missing_count=overlap.missing_count,
-            gate_verdict=verdict,
+            qualification_label=label,
         ),
     )
 
-    if is_reranker_gate_disagreement(
+    if is_rank_label_disagreement(
         match.rerank_score,
-        verdict,
-        threshold=settings.rerank_high_score_threshold,
+        label,
+        high_threshold=settings.rerank_high_score_threshold,
+        low_threshold=settings.rerank_low_score_threshold,
     ):
         logger.info(
-            "screen-job reranker_gate_disagreement match_id=%s rerank_score=%.4f "
-            "gate_confidence=%.3f hard_req_missing=%s",
+            "screen-job rank_label_disagreement match_id=%s rerank_score=%.4f "
+            "label=%s gate_confidence=%.3f hard_req_missing=%s",
             match.id,
             match.rerank_score,
+            label,
             confidence,
             overlap.missing_count,
         )
         record_pipeline_event(
             session,
             stage=STAGE,
-            action="reranker_gate_disagreement",
+            action="rank_label_disagreement",
             user_id=match.user_id,
             job_id=match.job_id,
             score=match.rerank_score,
+            details={"qualification_label": label},
         )
 
     session.flush()
     logger.info(
-        "screen-job action=%s match_id=%s verdict=%s hard_req_missing=%s "
+        "screen-job action=%s match_id=%s label=%s hard_req_missing=%s "
         "generate_enqueued=%s",
         action,
         match.id,
-        verdict,
+        label,
         overlap.missing_count,
         generate_enqueued,
     )
     return ScreenResult(
         action=action,
         match_id=str(match.id),
-        gate_verdict=verdict,
+        qualification_label=label,
         hard_req_missing_count=overlap.missing_count,
-        prompt_tokens=usage_tokens[0],
-        completion_tokens=usage_tokens[1],
-        cost_usd=usage_tokens[2],
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        cost_usd=usage.cost_usd,
         generate_enqueued=generate_enqueued,
     )
 
 
-def _write_verdict(session: Session, match: Match, *, verdict: str, reason: str) -> bool:
+def _write_label(session: Session, match: Match, *, label: str, reason: str) -> bool:
     clipped = (reason or "").strip()[:_REASON_MAX_CHARS]
     result = session.execute(
         update(Match)
-        .where(Match.id == match.id, Match.gate_verdict.is_(None))
-        .values(gate_verdict=verdict, gate_reason=clipped or None)
+        .where(Match.id == match.id, Match.qualification_label.is_(None))
+        .values(qualification_label=label, screen_reason=clipped or None)
     )
     if result.rowcount == 0:
         return False
     session.refresh(match)
     return True
-
-
-def _try_consume_quota(session: Session, user_id: uuid.UUID) -> bool:
-    result = session.execute(
-        update(User)
-        .where(
-            User.id == user_id,
-            User.quota_remaining.is_not(None),
-            User.quota_remaining > 0,
-        )
-        .values(quota_remaining=User.quota_remaining - 1)
-    )
-    return result.rowcount == 1
 
 
 def _parse_uuid(value: Any) -> uuid.UUID | None:

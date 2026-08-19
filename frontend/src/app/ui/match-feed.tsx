@@ -22,6 +22,29 @@ const SKIP_REASONS = [
   ["other", "Other"],
 ] as const;
 
+const LABEL_COPY: Record<
+  NonNullable<Match["qualification_label"]>,
+  { title: string; tone: "high" | "mid" | "low" }
+> = {
+  clearly_qualified: { title: "Clearly qualified", tone: "high" },
+  potentially_qualified: { title: "Potentially qualified", tone: "high" },
+  overqualified: { title: "Overqualified", tone: "mid" },
+  minimally_qualified: { title: "Minimally qualified", tone: "low" },
+  unqualified: { title: "Unqualified", tone: "low" },
+};
+
+const LOW_LABELS = new Set<Match["qualification_label"]>([
+  "unqualified",
+  "minimally_qualified",
+]);
+
+function labelBadgeClass(label: Match["qualification_label"]) {
+  if (!label) return styles.labelUnscreened;
+  if (LABEL_COPY[label].tone === "high") return styles.labelHigh;
+  if (LABEL_COPY[label].tone === "mid") return styles.labelMid;
+  return styles.labelLow;
+}
+
 function formatComp(min: number | null, max: number | null) {
   if (min === null && max === null) return "Comp not listed";
   const compact = (value: number) =>
@@ -67,7 +90,6 @@ export default function MatchFeed() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [userId, setUserId] = useState("");
-  const [view, setView] = useState<"matched" | "screened_out">("matched");
   const [matches, setMatches] = useState<Match[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadedMatchKey, setLoadedMatchKey] = useState("");
@@ -100,13 +122,13 @@ export default function MatchFeed() {
     };
   }, []);
 
-  const matchKey = userId ? `${userId}:${view}:${retryCount}` : "";
+  const matchKey = userId ? `${userId}:${retryCount}` : "";
   const loadingMatches = Boolean(userId && loadedMatchKey !== matchKey);
 
   useEffect(() => {
     if (!userId) return;
     let active = true;
-    fetchMatches(userId, view)
+    fetchMatches(userId)
       .then((rows) => {
         if (!active) return;
         setMatches(rows);
@@ -121,7 +143,7 @@ export default function MatchFeed() {
     return () => {
       active = false;
     };
-  }, [matchKey, userId, view]);
+  }, [matchKey, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -212,6 +234,10 @@ export default function MatchFeed() {
         action: "generate_requested",
       });
       const result = await requestGeneration(match.id);
+      if (result.action === "quota_exhausted") {
+        setActionError("Resume quota is exhausted for this profile.");
+        return;
+      }
       updateUi(match.id, { generate_requested: true });
       if (result.generation_id) {
         router.push(`/generations/${result.generation_id}`);
@@ -270,24 +296,6 @@ export default function MatchFeed() {
       </div>
 
       <div className={styles.toolbar}>
-        <div className={styles.tabs} role="tablist" aria-label="Match views">
-          <button
-            className={`${styles.tab} ${view === "matched" ? styles.activeTab : ""}`}
-            onClick={() => setView("matched")}
-            role="tab"
-            aria-selected={view === "matched"}
-          >
-            Recommended
-          </button>
-          <button
-            className={`${styles.tab} ${view === "screened_out" ? styles.activeTab : ""}`}
-            onClick={() => setView("screened_out")}
-            role="tab"
-            aria-selected={view === "screened_out"}
-          >
-            Screened out
-          </button>
-        </div>
         {!loadingMatches && userId && (
           <span className={styles.resultCount}>
             {matches.length} {matches.length === 1 ? "role" : "roles"}
@@ -337,21 +345,14 @@ export default function MatchFeed() {
         <div className={styles.emptyState}>
           <div>
             <span className={styles.emptyIcon}>⌁</span>
-            <h2>
-              {view === "matched"
-                ? "Still scanning for matches"
-                : "Nothing has been screened out"}
-            </h2>
+            <h2>Still scanning for matches</h2>
             <p>
-              {view === "matched"
-                ? "The local corpus starts small. Check back after the next matching cycle, or loosen your profile filters."
-                : "Gate-rejected roles will appear here with the exact reason they were removed."}
+              The local corpus starts small. Check back after the next matching
+              cycle, or loosen your profile filters.
             </p>
-            {view === "matched" && (
-              <Link className={styles.button} href="/profile">
-                Review filters
-              </Link>
-            )}
+            <Link className={styles.button} href="/profile">
+              Review filters
+            </Link>
           </div>
         </div>
       ) : (
@@ -362,12 +363,22 @@ export default function MatchFeed() {
                 <div className={styles.matchTopline}>
                   <span
                     className={`${styles.score} ${
-                      view === "screened_out" ? styles.rejectedScore : ""
+                      match.qualification_label &&
+                      LOW_LABELS.has(match.qualification_label)
+                        ? styles.rejectedScore
+                        : ""
                     }`}
                   >
                     {match.rerank_score === null
                       ? "Unscored"
                       : `${Math.round(match.rerank_score * 100)}% match`}
+                  </span>
+                  <span
+                    className={`${styles.labelBadge} ${labelBadgeClass(match.qualification_label)}`}
+                  >
+                    {match.qualification_label
+                      ? LABEL_COPY[match.qualification_label].title
+                      : "Unscreened"}
                   </span>
                   <span>{match.location || "Location not listed"}</span>
                   <span>·</span>
@@ -397,94 +408,89 @@ export default function MatchFeed() {
                   </div>
                 </div>
 
-                {match.gate_reason && (
+                {match.screen_reason && (
                   <div className={styles.gateReason}>
-                    <strong>
-                      {view === "screened_out" ? "Why it was screened" : "Gate note"}
-                    </strong>
-                    {match.gate_reason}
+                    <strong>Screen note</strong>
+                    {match.screen_reason}
                   </div>
                 )}
               </div>
 
               <div className={styles.cardActions}>
-                {view === "screened_out" ? (
-                  match.ui.skipped?.reason_code === "disagree_with_gate" ? (
+                <button
+                  className={`${styles.button} ${styles.primaryButton}`}
+                  disabled={busyMatch === match.id || queued.includes(match.id)}
+                  onClick={() => void generate(match)}
+                >
+                  {match.generation_id
+                    ? "Open application"
+                    : queued.includes(match.id)
+                      ? "Generation queued"
+                      : "Generate resume"}
+                </button>
+                {LOW_LABELS.has(match.qualification_label) &&
+                  (match.ui.skipped?.reason_code === "disagree_with_gate" ? (
                     <p className={styles.statusNote}>Correction recorded</p>
                   ) : (
                     <button
-                      className={`${styles.button} ${styles.primaryButton}`}
+                      className={styles.button}
                       disabled={busyMatch === match.id}
                       onClick={() => void disagreeWithGate(match.id)}
                     >
                       Actually, I qualify
                     </button>
-                  )
-                ) : (
+                  ))}
+                {match.ui.applied_at ? (
                   <>
-                    <button
-                      className={`${styles.button} ${styles.primaryButton}`}
-                      disabled={busyMatch === match.id || queued.includes(match.id)}
-                      onClick={() => void generate(match)}
-                    >
-                      {match.generation_id
-                        ? "Open application"
-                        : queued.includes(match.id)
-                          ? "Generation queued"
-                          : "Generate resume"}
-                    </button>
-                    {match.ui.applied_at ? (
-                      <>
-                        <p className={styles.statusNote}>
-                          Applied ·{" "}
-                          {new Date(match.ui.applied_at).toLocaleDateString()}
-                        </p>
-                        <div className={styles.buttonRow}>
-                          <button
-                            className={`${styles.button} ${
-                              match.ui.outcome === "interview"
-                                ? styles.appliedButton
-                                : ""
-                            }`}
-                            disabled={busyMatch === match.id}
-                            onClick={() => void setOutcome(match, "interview")}
-                          >
-                            Interview
-                          </button>
-                          <button
-                            className={`${styles.button} ${
-                              match.ui.outcome === "rejected"
-                                ? styles.dangerButton
-                                : ""
-                            }`}
-                            disabled={busyMatch === match.id}
-                            onClick={() => void setOutcome(match, "rejected")}
-                          >
-                            Rejected
-                          </button>
-                        </div>
-                      </>
-                    ) : (
+                    <p className={styles.statusNote}>
+                      Applied ·{" "}
+                      {new Date(match.ui.applied_at).toLocaleDateString()}
+                    </p>
+                    <div className={styles.buttonRow}>
                       <button
-                        className={`${styles.button} ${styles.appliedButton}`}
+                        className={`${styles.button} ${
+                          match.ui.outcome === "interview"
+                            ? styles.appliedButton
+                            : ""
+                        }`}
                         disabled={busyMatch === match.id}
-                        onClick={() => void markApplied(match)}
+                        onClick={() => void setOutcome(match, "interview")}
                       >
-                        Mark as applied
+                        Interview
                       </button>
-                    )}
-                    {match.ui.skipped ? (
-                      <p className={styles.statusNote}>Feedback saved</p>
-                    ) : (
                       <button
-                        className={`${styles.button} ${styles.quietButton}`}
-                        onClick={() => setSkipMatch(match.id)}
+                        className={`${styles.button} ${
+                          match.ui.outcome === "rejected"
+                            ? styles.dangerButton
+                            : ""
+                        }`}
+                        disabled={busyMatch === match.id}
+                        onClick={() => void setOutcome(match, "rejected")}
                       >
-                        Not for me
+                        Rejected
                       </button>
-                    )}
+                    </div>
                   </>
+                ) : (
+                  <button
+                    className={`${styles.button} ${styles.appliedButton}`}
+                    disabled={busyMatch === match.id}
+                    onClick={() => void markApplied(match)}
+                  >
+                    Mark as applied
+                  </button>
                 )}
+                {match.ui.skipped &&
+                match.ui.skipped.reason_code !== "disagree_with_gate" ? (
+                  <p className={styles.statusNote}>Feedback saved</p>
+                ) : !match.ui.skipped ? (
+                  <button
+                    className={`${styles.button} ${styles.quietButton}`}
+                    onClick={() => setSkipMatch(match.id)}
+                  >
+                    Not for me
+                  </button>
+                ) : null}
               </div>
 
               {skipMatch === match.id && (

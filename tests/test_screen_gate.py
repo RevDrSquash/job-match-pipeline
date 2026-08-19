@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from app.screen.gate import (
-    hard_requirement_overlap,
-    is_reranker_gate_disagreement,
-)
+from app.screen.gate import hard_requirement_overlap, is_rank_label_disagreement
 
 
 def test_full_overlap_has_zero_missing() -> None:
@@ -16,11 +13,9 @@ def test_full_overlap_has_zero_missing() -> None:
     assert result.matched_ids == ("esco:python", "esco:postgres")
     assert result.missing_ids == ()
     assert result.missing_count == 0
-    assert result.exceeds_drop_threshold(None) is False
-    assert result.exceeds_drop_threshold(1) is False
 
 
-def test_single_missing_is_recorded_not_auto_dropped() -> None:
+def test_single_missing_is_recorded() -> None:
     result = hard_requirement_overlap(
         ["esco:python", "esco:terraform"],
         ["esco:python"],
@@ -28,10 +23,6 @@ def test_single_missing_is_recorded_not_auto_dropped() -> None:
     assert result.matched_ids == ("esco:python",)
     assert result.missing_ids == ("esco:terraform",)
     assert result.missing_count == 1
-    # Current policy: do not auto-drop on a single miss.
-    assert result.exceeds_drop_threshold(None) is False
-    assert result.exceeds_drop_threshold(2) is False
-    assert result.exceeds_drop_threshold(1) is True
 
 
 def test_overlap_dedupes_and_preserves_required_order() -> None:
@@ -58,8 +49,40 @@ def test_empty_profile_marks_all_required_missing() -> None:
     assert result.missing_count == 2
 
 
-def test_reranker_gate_disagreement_only_on_high_score_reject() -> None:
-    assert is_reranker_gate_disagreement(0.92, "reject", threshold=0.7) is True
-    assert is_reranker_gate_disagreement(0.4, "reject", threshold=0.7) is False
-    assert is_reranker_gate_disagreement(0.99, "pass", threshold=0.7) is False
-    assert is_reranker_gate_disagreement(None, "reject", threshold=0.7) is False
+def test_rank_label_disagreement_both_directions() -> None:
+    assert (
+        is_rank_label_disagreement(
+            0.92, "unqualified", high_threshold=0.7, low_threshold=0.3
+        )
+        is True
+    )
+    assert (
+        is_rank_label_disagreement(
+            0.92, "minimally_qualified", high_threshold=0.7, low_threshold=0.3
+        )
+        is True
+    )
+    assert (
+        is_rank_label_disagreement(
+            0.4, "unqualified", high_threshold=0.7, low_threshold=0.3
+        )
+        is False
+    )
+    assert (
+        is_rank_label_disagreement(
+            0.2, "clearly_qualified", high_threshold=0.7, low_threshold=0.3
+        )
+        is True
+    )
+    assert (
+        is_rank_label_disagreement(
+            0.9, "clearly_qualified", high_threshold=0.7, low_threshold=0.3
+        )
+        is False
+    )
+    assert (
+        is_rank_label_disagreement(
+            None, "unqualified", high_threshold=0.7, low_threshold=0.3
+        )
+        is False
+    )

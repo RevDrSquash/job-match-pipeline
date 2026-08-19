@@ -163,7 +163,7 @@ def _add_match(session: Session, user: User, job: Job) -> Match:
         job_id=job.id,
         cycle_at=datetime.now(tz=UTC),
         rerank_score=0.88,
-        gate_verdict="pass",
+        qualification_label="clearly_qualified",
         matched_skills=[PYTHON_ID],
         adjacent_skills=[],
         missing_skills=[TF_ID],

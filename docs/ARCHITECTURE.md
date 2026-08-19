@@ -5,7 +5,7 @@
 **Separate work that scales with jobs from work that scales with users.**
 The central constraint. Ingest is O(jobs) — paid once per posting regardless of user count. Matching is O(users). Extraction is deferred so it scales with users early and converges on O(jobs). Nothing in the system may be O(jobs × users) at LLM cost.
 
-**Cheap filters before expensive ones.** A funnel: SQL metadata filter → skill-set overlap → vector recall → reranker → LLM gate → generation. Each stage is roughly an order of magnitude more expensive than the last and sees roughly an order of magnitude fewer items.
+**Cheap filters before expensive ones.** A funnel: SQL metadata filter → skill-set overlap → vector recall → reranker → LLM qualification screen → generation. Each stage is roughly an order of magnitude more expensive than the last and sees roughly an order of magnitude fewer items.
 
 **Pay for a posting only when someone might want it.** LLM extraction runs on first prefilter hit, not at ingest, and caches permanently. Metadata prefilters run on ATS-provided fields, so nothing is blocked by deferring it. This keeps early-stage cost proportional to users rather than to the whole corpus, and converges on O(jobs) only once the user base actually covers the corpus.
 
@@ -73,12 +73,13 @@ The central constraint. Ingest is O(jobs) — paid once per posting regardless o
                                 │ 1 task per (user, job) survivor
                     ┌───────────▼─────────────┐
                     │  screen-job             │
-                    │  • deterministic gate   │
-                    │    (hard req overlap)   │
-                    │  • cheap LLM gate       │
-                    │  → verdict + reason     │
+                    │  • hard-req overlap     │
+                    │    (recorded, not a     │
+                    │     drop)               │
+                    │  • cheap LLM screen     │
+                    │  → label + reason       │
                     └───────────┬─────────────┘
-                                │ if pass AND user has quota
+                                │ if clearly_qualified AND quota
                     ┌───────────▼─────────────┐
                     │  generate-resume        │
                     │  • cached profile block │
@@ -130,7 +131,7 @@ Use top-N rather than a score threshold: cross-encoder scores are not reliably c
 
 ### 4. Labels from day one
 
-Every `(user, job, stage, score, action)` tuple is logged — shown, skipped, gate-rejected, generated, applied. This is the training set for a fine-tuned person-job-fit encoder later, and it is the actual defensible asset. A tuned small model on proprietary interaction data plausibly beats frontier models used as generic rerankers.
+Every `(user, job, stage, score, action)` tuple is logged — shown, skipped, screened, generated, applied. This is the training set for a fine-tuned person-job-fit encoder later, and it is the actual defensible asset. A tuned small model on proprietary interaction data plausibly beats frontier models used as generic rerankers.
 
 ## Verification design
 
@@ -151,14 +152,15 @@ The LLM grounding check then only handles semantic drift ("led" vs. "contributed
 
 ## Spend control
 
-Two independent caps:
+Three independent caps:
 
 * **Candidates per user per day** (~500 post-filter) — bounds rerank cost against a badly configured profile
+* **`SCREEN_SCORE_FLOOR`** — skip the LLM screen on low-rerank matches; they still appear in the list, unscreened
 * **Resume generations per month** (tens) — bounds the dominant cost
 
-Screening is cheap enough to be effectively free, so it can be generous on every tier. Differentiation is on resume volume, which is also what users perceive as the product.
+Screening is cheap enough to be generous, but the floor is the spend bound on top of Top-N / daily cap. Differentiation is on resume volume, which is also what users perceive as the product.
 
-Gate rejections are billed as COGS, not to the user, and surfaced as a product feature ("screened out: requires 10y, you have 4") rather than hidden. Without that visibility, users see 50 matches → 12 applications and assume it's broken.
+Screen labels are billed as COGS, not to the user, and surfaced as a product feature (qualification badge + reasoning on every card) rather than hidden. Without that visibility, users see 50 matches → 12 applications and assume it's broken.
 
 ## Application submission
 

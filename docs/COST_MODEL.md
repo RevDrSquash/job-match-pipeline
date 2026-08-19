@@ -144,16 +144,16 @@ Per-application-only pricing aligns revenue to COGS almost perfectly, which is g
 
 The hybrid gives breakage in our favor (most users won't hit N), a cap against power users, and no per-click friction inside the allotment.
 
-**Gate rejections are COGS, not billed to the user.** This is only affordable because the gate is a cheap separate call — which is why its placement is an economic decision, not just an architectural one. Rejections should be surfaced as product ("screened out: requires 10y, you have 4") rather than hidden; otherwise users see 50 matches → 12 applications and assume it's broken.
+**Screen labels are COGS, not billed to the user.** This is only affordable because the screen is a cheap separate call — which is why its placement is an economic decision, not just an architectural one. Labels and reasons should be surfaced as product on the ranked list rather than hidden; otherwise users see 50 matches → 12 applications and assume it's broken. `SCREEN_SCORE_FLOOR` is the spend bound that keeps the ~100 screens/user/day assumption from running away.
 
 ## Cost reduction levers, in order of value
 
 1. **Lazy extraction** — already adopted; ~20× reduction at early user counts
 2. **Prompt caching** on the profile block — largest lever on the dominant cost
 3. **ATS inline content** — skip per-job detail fetches where the list endpoint returns full content
-4. **Deterministic gate before the LLM gate** — free rejections via skill-set overlap
+4. **`SCREEN_SCORE_FLOOR`** — skip the LLM screen on low-rerank matches; they still appear, unscreened
 5. **Compact rerank documents** — avoids the chunking multiplier
-6. **Feedback loop tuning** — driving the gate's rejection rate down means fewer wasted generations; this is what `pipeline_events` pays for
+6. **Feedback loop tuning** — `rank_label_disagreement` (high rerank + low label, and the inverse) is what `pipeline_events` pays for; auto-generation only on `clearly_qualified` is the other generation-volume lever
 7. **Fine-tuned small reranker** on accumulated labels — plausibly better *and* cheaper than frontier models used as generic rerankers
 
 ## Open cost questions

@@ -238,7 +238,7 @@ def _run_match_cycles(
     with db_session() as session:
         screens = int(
             session.scalar(
-                select(func.count()).select_from(Match).where(Match.gate_verdict.is_(None))
+                select(func.count()).select_from(Match).where(Match.qualification_label.is_(None))
             )
             or 0
         )
@@ -286,7 +286,7 @@ def _screens_drained() -> bool:
     with db_session() as session:
         pending = int(
             session.scalar(
-                select(func.count()).select_from(Match).where(Match.gate_verdict.is_(None))
+                select(func.count()).select_from(Match).where(Match.qualification_label.is_(None))
             )
             or 0
         )
@@ -297,7 +297,9 @@ def _downstream_drained() -> bool:
     with db_session() as session:
         passed = int(
             session.scalar(
-                select(func.count()).select_from(Match).where(Match.gate_verdict == "pass")
+                select(func.count())
+                .select_from(Match)
+                .where(Match.qualification_label == "clearly_qualified")
             )
             or 0
         )

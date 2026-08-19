@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Company, Generation, Job, Match, PipelineEvent, User, UserFilter
 from app.match.sql import candidate_query
+from app.screen.labels import QUALIFICATION_LABELS
 
 _LLM_STAGES = ("extract-job", "screen-job", "generate-resume", "verify-resume")
 _SCREEN_DONE = frozenset(
-    {"gate_pass", "gate_reject", "quota_exhausted", "skipped_screened"}
+    {"screened", "quota_exhausted", "skipped_screened"}
 )
 _EXTRACT_DONE = frozenset({"extracted", "unparseable", "skipped_cached"})
 
@@ -80,7 +81,7 @@ def collect_measurements(session: Session) -> dict[str, Any]:
             stage: stats["latency_ms"] for stage, stats in usage.items() if stats["n"]
         },
         "events": {stage: dict(actions) for stage, actions in by_stage_action.items()},
-        "reranker_gate_disagreements": disagreements,
+        "rank_label_disagreements": disagreements,
         "delivered_resumes": delivered,
         "filters": _filter_snapshot(session),
     }
@@ -140,22 +141,22 @@ def _funnel(
 
     screened = int(
         session.scalar(
-            select(func.count()).select_from(Match).where(Match.gate_verdict.is_not(None))
+            select(func.count())
+            .select_from(Match)
+            .where(Match.qualification_label.is_not(None))
         )
         or 0
     )
-    gate_pass = int(
-        session.scalar(
-            select(func.count()).select_from(Match).where(Match.gate_verdict == "pass")
-        )
-        or 0
+    label_counts = dict(
+        session.execute(
+            select(Match.qualification_label, func.count())
+            .where(Match.qualification_label.is_not(None))
+            .group_by(Match.qualification_label)
+        ).all()
     )
-    gate_reject = int(
-        session.scalar(
-            select(func.count()).select_from(Match).where(Match.gate_verdict == "reject")
-        )
-        or 0
-    )
+    label_distribution = {
+        label: int(label_counts.get(label) or 0) for label in QUALIFICATION_LABELS
+    }
     generated = int(session.scalar(select(func.count()).select_from(Generation)) or 0)
     verify_passed = int(
         session.scalar(
@@ -184,9 +185,7 @@ def _funnel(
         "match_survival_of_prefilter": _ratio(peak_matches, peak_prefilter),
         "screened": screened,
         "screen_events_done": screen_done,
-        "gate_pass": gate_pass,
-        "gate_reject": gate_reject,
-        "gate_pass_rate": _ratio(gate_pass, screened),
+        "label_distribution": label_distribution,
         "generated": generated,
         "verify_passed": verify_passed,
         "end_to_end_of_corpus": _ratio(verify_passed, jobs_total),
@@ -197,7 +196,14 @@ def _funnel(
 
 def _disagreements(session: Session) -> list[dict[str, Any]]:
     rows = session.execute(
-        select(PipelineEvent, Job.title, Company.name, Match.gate_reason, Match.rerank_score)
+        select(
+            PipelineEvent,
+            Job.title,
+            Company.name,
+            Match.screen_reason,
+            Match.qualification_label,
+            Match.rerank_score,
+        )
         .select_from(PipelineEvent)
         .outerjoin(Job, Job.id == PipelineEvent.job_id)
         .outerjoin(Company, Company.id == Job.company_id)
@@ -207,12 +213,12 @@ def _disagreements(session: Session) -> list[dict[str, Any]]:
             & (Match.user_id == PipelineEvent.user_id),
         )
         .where(PipelineEvent.stage == "screen-job")
-        .where(PipelineEvent.action == "reranker_gate_disagreement")
+        .where(PipelineEvent.action == "rank_label_disagreement")
         .order_by(PipelineEvent.ts)
     ).all()
     seen: set[tuple[Any, Any]] = set()
     out: list[dict[str, Any]] = []
-    for event, title, company, reason, score in rows:
+    for event, title, company, reason, label, score in rows:
         key = (event.job_id, event.user_id)
         if key in seen:
             continue
@@ -223,7 +229,8 @@ def _disagreements(session: Session) -> list[dict[str, Any]]:
                 "title": title,
                 "company": company,
                 "rerank_score": float(score if score is not None else event.score or 0.0),
-                "gate_reason": _clip_reason(reason),
+                "qualification_label": label,
+                "screen_reason": _clip_reason(reason),
             }
         )
     return out
@@ -237,7 +244,7 @@ def _delivered_resumes(session: Session) -> list[dict[str, Any]]:
             Job.title,
             Company.name,
             Match.rerank_score,
-            Match.gate_verdict,
+            Match.qualification_label,
         )
         .join(Match, Match.id == Generation.match_id)
         .join(Job, Job.id == Match.job_id)
@@ -251,7 +258,7 @@ def _delivered_resumes(session: Session) -> list[dict[str, Any]]:
             "job_title": title,
             "company": company,
             "rerank_score": float(score) if score is not None else None,
-            "gate_verdict": verdict,
+            "qualification_label": verdict,
         }
         for gen_id, status, title, company, score, verdict in rows
     ]

@@ -77,9 +77,13 @@ def render_poc_results(
         "",
         _latency_table(usage),
         "",
-        "## Reranker / gate disagreements",
+        "## Rank / label disagreements",
         "",
-        _disagreement_section(snapshot.get("reranker_gate_disagreements") or []),
+        _disagreement_section(
+            snapshot.get("rank_label_disagreements")
+            or snapshot.get("reranker_gate_disagreements")
+            or []
+        ),
         "",
         "## Generated, verified resumes",
         "",
@@ -255,9 +259,7 @@ def _funnel_table(funnel: dict[str, Any], corpus: dict[str, Any]) -> str:
         ("Matches written (peak / cycle)", funnel.get("matches_written_peak", 0)),
         ("Match / prefilter", _pct(funnel.get("match_survival_of_prefilter"))),
         ("Screened", funnel.get("screened", 0)),
-        ("Gate pass", funnel.get("gate_pass", 0)),
-        ("Gate reject", funnel.get("gate_reject", 0)),
-        ("Gate pass rate", _pct(funnel.get("gate_pass_rate"))),
+        *_label_distribution_rows(funnel.get("label_distribution") or {}),
         ("Resumes generated", funnel.get("generated", 0)),
         ("Verify passed", funnel.get("verify_passed", 0)),
         ("End-to-end of corpus", _pct(funnel.get("end_to_end_of_corpus"))),
@@ -284,25 +286,33 @@ def _latency_table(usage: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _label_distribution_rows(distribution: dict[str, Any]) -> list[tuple[str, Any]]:
+    return [
+        (f"Label · {label.replace('_', ' ')}", int(count or 0))
+        for label, count in distribution.items()
+    ]
+
+
 def _disagreement_section(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return (
-            "No `reranker_gate_disagreement` events "
-            "(gate reject at `rerank_score >= RERANK_HIGH_SCORE_THRESHOLD`)."
+            "No `rank_label_disagreement` events "
+            "(high rerank + low label, or low rerank + clearly_qualified)."
         )
     lines = [
-        f"{len(rows)} case(s) where the cheap gate rejected a high rerank score:",
+        f"{len(rows)} case(s) where the screen label disagreed with the rerank score:",
         "",
-        "| Company | Title | Rerank | Gate reason |",
-        "| -- | -- | -- | -- |",
+        "| Company | Title | Rerank | Label | Reason |",
+        "| -- | -- | -- | -- | -- |",
     ]
     for row in rows:
-        reason = (row.get("gate_reason") or "—").replace("|", "/")
+        reason = (row.get("screen_reason") or row.get("gate_reason") or "—").replace("|", "/")
         title = (row.get("title") or "—").replace("|", "/")
         company = (row.get("company") or "—").replace("|", "/")
+        label = (row.get("qualification_label") or "—").replace("|", "/")
         score = row.get("rerank_score")
         score_s = f"{score:.3f}" if isinstance(score, int | float) else "—"
-        lines.append(f"| {company} | {title} | {score_s} | {reason} |")
+        lines.append(f"| {company} | {title} | {score_s} | {label} | {reason} |")
     return "\n".join(lines)
 
 
@@ -344,7 +354,8 @@ def _public_snapshot(
             if k != "cycles"
         },
         "usage": snapshot.get("usage"),
-        "reranker_gate_disagreements": snapshot.get("reranker_gate_disagreements"),
+        "rank_label_disagreements": snapshot.get("rank_label_disagreements")
+        or snapshot.get("reranker_gate_disagreements"),
         "delivered_resumes": snapshot.get("delivered_resumes"),
         "filters": snapshot.get("filters"),
         "eval": {

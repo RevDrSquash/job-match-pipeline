@@ -6,7 +6,7 @@
 
 **Capture feedback from day one.** `pipeline_events` is the training set for a fine-tuned matching encoder and the main defensible asset. It only materializes if the UI records user actions. Labels not captured at launch cannot be backfilled — they are permanently lost. This is the single most irreversible UI decision.
 
-**Make rejections visible.** Gate rejections are billed as COGS and surfaced as product. Without a screened-out view, a user sees 50 matches produce 12 applications and concludes the system is broken.
+**Make screen reasoning visible.** Qualification labels are billed as COGS and surfaced as product — a badge and a reason on every card. Without that, a user sees 50 matches produce 12 applications and concludes the system is broken.
 
 **The digest may be the primary interface.** The pipeline is asynchronous; matches arrive on a cycle. Without notification the user has no reason to return. Design the web app as the place you act on a digest, not as somewhere people idly browse.
 
@@ -119,7 +119,7 @@ The premise: people omit things that belong on a resume because they don't reali
 
 The primary logged-in surface.
 
-Per match: title, company, location, comp, match score, **matched skills**, **missing skills**, and the gate's stated reason.
+One ordered list, best matches first. Per match: title, company, location, comp, match score, **qualification label**, **matched skills**, **missing skills**, and the screen's stated reason. Unscreened matches (below the score floor, or still in flight) appear below screened ones.
 
 **Actions — each writes to** `pipeline_events`**:**
 
@@ -147,11 +147,9 @@ The third matters more than it looks. Ghosting is the overwhelmingly common outc
 
 **Put the same buttons in the email digest as one-click links.** The user who will never open the web app to report an outcome will click a link in an email about a job they applied to. This is the cheapest available lift on the most valuable label.
 
-### 6. Screened-out view
+### 6. Qualification label on the card
 
-Jobs that matched filters but were dropped by the gate, with reasons ("requires 10y, you have 4"). Explicitly a screen, not a statistic.
-
-Doubles as a correction surface: a user disagreeing with a rejection is a high-value signal, and should be actionable ("actually, I do have this").
+The screen stage is advisory, not a hide. Low labels (`unqualified`, `minimally_qualified`) still appear in the ranked list with their reason. Doubles as a correction surface: a user disagreeing with a low label is a high-value signal, and should be actionable ("Actually, I qualify" → `disagree_with_gate`).
 
 ### 7. Generated resume + application handoff
 
@@ -203,8 +201,8 @@ Business metrics — indexed jobs, users, cost, revenue — plus the operational
 
 * **Per-stage funnel counts** — ingested → prefiltered → extracted → reranked → gated → generated → applied. Where candidates die is where the bugs are.
 * **Extraction coverage %** of corpus (drives the cost projection)
-* **Gate rejection rate**, trended
-* **Reranker/gate disagreement log** — the tuning signal named in Architecture
+* **Qualification-label distribution**, trended
+* **Rank/label disagreement log** — the tuning signal named in Architecture
 * Queue depths and task failure rates per handler
 * Extraction and parse failure rates
 * **LLM spend per user, with alerting.** Runaway spend is silent until the invoice arrives.
@@ -251,9 +249,9 @@ Read endpoints (thin queries over existing models):
 | -- | -- |
 | `GET /api/users` | id, tier, quota |
 | `GET /api/profile?user_id=` | profile + filters + resolved `skills` labels (same base shape as `jobmatch profile show`) |
-| `GET /api/matches?user_id=&view=matched\|screened_out` | match cards with job metadata, skill buckets as `{id, label}`, gate fields, latest UI state. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones), so each job lands in exactly one view per its latest gate verdict |
+| `GET /api/matches?user_id=` | single ranked list: match cards with job metadata, skill buckets as `{id, label}`, `qualification_label` / `screen_reason`, latest UI state. Ordered by label tier then `rerank_score`. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones) |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
-| `GET /api/admin/metrics` | funnel counts, extraction coverage %, gate rejection rate, LLM spend |
+| `GET /api/admin/metrics` | funnel counts, extraction coverage %, label distribution, LLM spend |
 
 Write endpoints:
 
@@ -261,7 +259,7 @@ Write endpoints:
 | -- | -- |
 | `PATCH /api/profile` | same service path as `jobmatch profile edit`; response includes re-scan messaging |
 | `POST /api/matches/{id}/events` | feedback actions (vocabulary below) |
-| `POST /api/matches/{id}/generate` | enqueue `generate-resume`; no-op when a generation already exists |
+| `POST /api/matches/{id}/generate` | enqueue `generate-resume` (consumes quota); no-op when a generation already exists; `quota_exhausted` when empty |
 
 Resume upload stays CLI-only for this milestone.
 
@@ -279,7 +277,7 @@ Every action writes to `pipeline_events` with `stage="ui"`.
 | `marked_applied` | Strong pre-outcome label | `applied_at` (ISO-8601; server defaults to now) |
 | `outcome` | Post-application result | `outcome`: `interview` \| `rejected` (no-response is the absence of a row) |
 
-`reason_code` values: `not_interested`, `wrong_location`, `wrong_comp`, `wrong_seniority`, `disagree_with_gate` (screened-out corrections), `other`.
+`reason_code` values: `not_interested`, `wrong_location`, `wrong_comp`, `wrong_seniority`, `disagree_with_gate` (correction of a low qualification label), `other`.
 
 ### Explicitly out of scope (this cut)
 

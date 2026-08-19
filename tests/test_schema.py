@@ -173,7 +173,7 @@ def test_pipeline_events_user_id_strippable(db_session: Session) -> None:
         job_id=job.id,
         stage="screen",
         score=0.9,
-        action="gate_pass",
+        action="screened",
     )
     db_session.add(event)
     db_session.flush()

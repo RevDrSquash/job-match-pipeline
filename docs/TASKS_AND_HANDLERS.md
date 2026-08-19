@@ -148,7 +148,7 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 * Reranker is behind `app.match.Reranker`: `RERANK_PROVIDER=local` (default, embedding cosine) or `hosted` (Cohere-compatible HTTP API, cosine fallback on failure).
 * Top-N per user (`MATCH_TOP_N`, default 100) is also clipped by the remaining daily candidate cap (`DAILY_CANDIDATE_CAP`, default 500).
 * Dirty mode selects `user_profiles.rematch_needed` up to `DIRTY_PROFILE_CAP` (default 25), processes the full corpus for those users, then clears the flag.
-* Each survivor writes a `matches` row and enqueues `screen-job` with `{user_id, job_id, match_id}`. Cycle-level and per-pair `pipeline_events` are always written. Profile/resume text is never logged.
+* Each survivor writes a `matches` row. `screen-job` is enqueued most-promising-first (rerank order) when `rerank_score` meets `SCREEN_SCORE_FLOOR` (unset = screen every Top-N survivor). Below-floor matches stay in the list with a NULL label and a `below_screen_floor` event. Cycle-level and per-pair `pipeline_events` are always written. Profile/resume text is never logged.
 * Match rows accumulate: a later cycle (notably a dirty rematch) writes a fresh row per `(user, job)` and does **not** delete or invalidate earlier ones — generations and events hang off them. Superseded rows are hidden at read time: the user-facing `GET /api/matches` returns only the latest match row per job (see `docs/UI.md`, API layer).
 * Meaningful vector recall needs `EMBEDDING_PROVIDER=gemini` (same provider as profile ingest). The hashing default is plumbing-only (`docs/OPEN_ISSUES.md` §6).
 
@@ -156,37 +156,37 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 
 ### `screen-job`
 
-**Trigger:** `match-batch`
-**Volume:** ~100/user/day
+**Trigger:** `match-batch` (most-promising-first; skipped below `SCREEN_SCORE_FLOOR`)
+**Volume:** ~100/user/day, bounded by Top-N, daily candidate cap, and the score floor
 
-**Stage 1 — deterministic gate (no LLM).** Both sides are canonicalized, so hard-requirement overlap is a set operation. Cheaper than the cheap gate and fully explainable.
+**Stage 1 — deterministic overlap (no LLM).** Both sides are canonicalized, so hard-requirement overlap is a set operation. The missing count is recorded on the event. It does **not** hard-reject — only the metadata prefilter drops candidates.
 
-> Current policy: do **not** auto-drop on a single missing hard requirement. The threshold should become configurable once we have false-negative data.
-
-**Stage 2 — cheap LLM gate.** Condensed JD + condensed profile, small model, structured output:
+**Stage 2 — cheap LLM screen.** Condensed JD + condensed profile, small model, structured output:
 
 ```json
-{ "verdict": "pass|reject", "reason": "...", "confidence": 0.0 }
+{ "label": "unqualified|minimally_qualified|overqualified|potentially_qualified|clearly_qualified", "reason": "...", "confidence": 0.0 }
 ```
 
-**Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap gate call saves the full generation cost on reject. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
+The label is a ranking signal, not a verdict. `confidence` is logged, not persisted. Ranking in the match feed is label tier first (clearly_qualified highest; NULL / unscreened last), then `rerank_score` within a tier.
 
-On pass **and** user has remaining quota → enqueue `generate-resume`.
+**Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap screen call saves the full generation cost when we choose not to auto-generate. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
+
+On `clearly_qualified` **and** remaining quota → enqueue `generate-resume`. Other labels stay on the ranked list for the user to triage. The user can also trigger generation from the UI (`POST /api/matches/{id}/generate`); that path consumes quota too.
 
 **PoC implementation** (`POST /handlers/screen-job` with `{match_id}` from `match-batch`):
 
-* **Stage 1** is set-math on canonical IDs: `jobs.skill_ids` vs `user_profiles.skill_ids` (`app.screen.hard_requirement_overlap`). Extract does not yet write a separate hard-requirement id list, so the PoC uses the job's linked skill set. Missing count is logged and returned; `HARD_REQ_MISSING_DROP_THRESHOLD` is unset, so a single miss never auto-drops. Set the env var later once false-negative data exists.
-* **Stage 2** sends `jobs.synthesized_doc` + `user_profiles.synthesized_doc` to `GATE_MODEL` (default `gemini-3.5-flash-lite`). Structured output `{verdict, reason, confidence}`. Condensed profile is personal information — prompt/completion text is never logged; retryable errors are stripped of upstream args.
-* `gate_verdict` / `gate_reason` are written with `UPDATE … WHERE gate_verdict IS NULL`. Redelivery of an already-screened match is a no-op (`skipped_screened`) and does not decrement quota again.
-* Rejections are always persisted (they are the screened-out view). Pass + `users.quota_remaining > 0` atomically decrements quota and enqueues `generate-resume` with `{user_id, job_id, match_id}`. Pass with no remaining quota is `quota_exhausted` — verdict still lands on the row.
-* When the gate rejects and `rerank_score >= RERANK_HIGH_SCORE_THRESHOLD` (default 0.7), log `reranker_gate_disagreement` explicitly and write a second `pipeline_events` row. That is the feedback-loop signal (`EVALUATION.md` operational discipline).
-* Every gate LLM call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (needed for `OPEN_ISSUES.md` §1). Permanent failures (missing/invalid `match_id`, unknown match): 2xx. Retryable LLM errors: `pipeline_events` + 5xx. A permanent gate LLM failure returns 2xx (`llm_permanent_failure`) and leaves `gate_verdict` NULL — no fabricated verdict, and the match stays screenable if re-driven.
+* **Stage 1** is set-math on canonical IDs: `jobs.skill_ids` vs `user_profiles.skill_ids` (`app.screen.hard_requirement_overlap`). Extract does not yet write a separate hard-requirement id list, so the PoC uses the job's linked skill set. Missing count is logged and returned; it never auto-drops.
+* **Stage 2** sends `jobs.synthesized_doc` + `user_profiles.synthesized_doc` to `GATE_MODEL` (default `gemini-3.5-flash-lite`). Structured output `{label, reason, confidence}` with an explicit rubric per label. Condensed profile is personal information — prompt/completion text is never logged; retryable errors are stripped of upstream args. Missing condensed docs write `missing_docs` and leave the label NULL (no fabricated label).
+* `qualification_label` / `screen_reason` are written with `UPDATE … WHERE qualification_label IS NULL`. Redelivery of an already-screened match is a no-op (`skipped_screened`) and does not decrement quota again.
+* Successful screens write `pipeline_events.action = screened` with the label in `details`. `clearly_qualified` + `users.quota_remaining > 0` atomically decrements quota and enqueues `generate-resume` with `{user_id, job_id, match_id}`. `clearly_qualified` with no remaining quota is `quota_exhausted` — the label still lands on the row.
+* Rank/label disagreement is logged both ways as `rank_label_disagreement`: `rerank_score >= RERANK_HIGH_SCORE_THRESHOLD` (default 0.7) with `unqualified` / `minimally_qualified`, or `rerank_score <= RERANK_LOW_SCORE_THRESHOLD` (default 0.3) with `clearly_qualified`. That is the feedback-loop signal (`EVALUATION.md` operational discipline).
+* Every screen LLM call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (needed for `OPEN_ISSUES.md` §1). Permanent failures (missing/invalid `match_id`, unknown match): 2xx. Retryable LLM errors: `pipeline_events` + 5xx. A permanent screen LLM failure returns 2xx (`llm_permanent_failure`) and leaves `qualification_label` NULL — no fabricated label, and the match stays screenable if re-driven.
 
 ---
 
 ### `generate-resume`
 
-**Trigger:** `screen-job`
+**Trigger:** `screen-job` on `clearly_qualified` (auto, quota-gated), or `POST /api/matches/{id}/generate` (manual, same quota)
 **Volume:** tens per user per month (tier-capped)
 
 Input assembled as **three explicit skill buckets**:
@@ -205,7 +205,7 @@ The missing bucket does the most work. Without an explicit list, a model asked t
 
 **Output:** resume + claim → source-span ID mapping (required by verification).
 
-**PoC implementation** (`POST /handlers/generate-resume` with `{user_id, job_id, match_id}` from `screen-job`, plus `attempt` / `violations` on a single regenerate):
+**PoC implementation** (`POST /handlers/generate-resume` with `{user_id, job_id, match_id}` from `screen-job` or the generate API, plus `attempt` / `violations` on a single regenerate):
 
 * Generation model: `GENERATION_MODEL` (default `gemini-3.1-pro-preview`). Resume text is personal information — ZDR/no-training vendor terms apply (`docs/PRIVACY_AND_COMPLIANCE.md`); paperwork is deferred. Prompt/completion text is never logged.
 * Input is assembled as the three match buckets (`matched_skills` / `adjacent_skills` / `missing_skills`) plus terminology context (canonical label, JD surface form, resume surface form). No find-replace on skill terms.
@@ -293,7 +293,7 @@ user_filters
 
 matches
   id, user_id, job_id, cycle_at
-  rerank_score, gate_verdict, gate_reason
+  rerank_score, qualification_label, screen_reason
   matched_skills[], adjacent_skills[], missing_skills[]
 
 generations
@@ -306,8 +306,8 @@ pipeline_events                        -- the training set
   details jsonb                        -- token/cost/latency; never resume/JD text
 ```
 
-`pipeline_events` is not incidental logging. Every `(user, job, stage, score, action)` tuple — shown, skipped, gate-rejected, generated, applied — is the dataset for a fine-tuned person-job-fit encoder later, and the main defensible asset. Populate it from the first day of the local proof of concept.
+`pipeline_events` is not incidental logging. Every `(user, job, stage, score, action)` tuple — shown, skipped, screened, generated, applied — is the dataset for a fine-tuned person-job-fit encoder later, and the main defensible asset. Populate it from the first day of the local proof of concept.
 
 ## Feedback loop to build immediately
 
-When the LLM gate rejects something the reranker scored highly, log the disagreement explicitly. It is the highest-value signal for tuning the metadata filters and rerank stage, and driving the gate's rejection rate down directly cuts COGS.
+When the screen label disagrees with the rerank score — high rerank + low label, or low rerank + `clearly_qualified` — log `rank_label_disagreement` explicitly. It is the highest-value signal for tuning the metadata filters and rerank stage.

@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
 from app.api.service import (
-    MatchView,
     admin_metrics,
     get_generation,
     get_profile,
@@ -93,10 +92,9 @@ def create_api_router() -> APIRouter:
     @router.get("/matches")
     def api_list_matches(
         user_id: Annotated[uuid.UUID, Query()],
-        view: Annotated[MatchView, Query()] = "matched",
     ) -> dict[str, list[dict[str, Any]]]:
         with db_session() as session:
-            return {"matches": list_matches(session, user_id, view=view)}
+            return {"matches": list_matches(session, user_id)}
 
     @router.get("/generations/{generation_id}")
     def api_get_generation(generation_id: uuid.UUID) -> dict[str, Any]:

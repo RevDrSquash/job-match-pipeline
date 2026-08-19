@@ -68,7 +68,7 @@ curl -s -X POST http://localhost:8080/handlers/extract-job \
 
 Re-POSTing the same `job_id` is a no-op. Permanent failures (unparseable JD) return 2xx; retryable LLM errors return 5xx. Token counts and estimated cost are logged on every extraction — never the JD text.
 
-Screen a match written by `match-batch` (deterministic hard-req overlap, then cheap LLM gate):
+Screen a match written by `match-batch` (hard-req overlap recorded, then cheap LLM qualification label):
 
 ```bash
 # Live gate needs LLM_API_KEY or GEMINI_API_KEY (GATE_MODEL, default gemini-3.5-flash-lite).
@@ -77,7 +77,7 @@ curl -s -X POST http://localhost:8080/handlers/screen-job \
   -d '{"match_id":"<match uuid>"}'
 ```
 
-Re-POSTing the same `match_id` is a no-op. Pass + remaining quota enqueues `generate-resume` and decrements `users.quota_remaining`. Rejections are persisted (`gate_verdict` / `gate_reason`). Profile text is never logged.
+Re-POSTing the same `match_id` is a no-op. `clearly_qualified` + remaining quota enqueues `generate-resume` and decrements `users.quota_remaining`. Every label is persisted (`qualification_label` / `screen_reason`). Profile text is never logged.
 
 Generate a resume for a screened match (three skill buckets, cached work-history prefix, claim → source-span map), then verify it:
 
