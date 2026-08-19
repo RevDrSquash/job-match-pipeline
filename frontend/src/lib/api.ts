@@ -35,11 +35,8 @@ export async function fetchUsers(): Promise<User[]> {
   return result.users;
 }
 
-export async function fetchMatches(
-  userId: string,
-  view: "matched" | "screened_out",
-): Promise<Match[]> {
-  const query = new URLSearchParams({ user_id: userId, view });
+export async function fetchMatches(userId: string): Promise<Match[]> {
+  const query = new URLSearchParams({ user_id: userId });
   const result = await request<{ matches: Match[] }>(`/api/matches?${query}`);
   return result.matches;
 }
@@ -69,7 +66,7 @@ export function recordMatchEvent(
 export function requestGeneration(
   matchId: string,
 ): Promise<{
-  action: "enqueued" | "skipped_existing";
+  action: "enqueued" | "skipped_existing" | "quota_exhausted";
   generation_id: string | null;
 }> {
   return request(`/api/matches/${matchId}/generate`, { method: "POST" });

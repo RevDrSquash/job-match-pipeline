@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -17,6 +17,8 @@ from app.privacy import PrivacySafeError
 from app.profile.deps import ProfileDeps
 from app.profile.service import bundle_to_dict, edit_profile, show_profile
 from app.queue import TaskQueue
+from app.quota import try_consume_quota
+from app.screen.labels import qualification_label_rank_expr
 
 UI_STAGE = "ui"
 UI_ACTIONS = frozenset(
@@ -33,7 +35,6 @@ SKIP_REASON_CODES = frozenset(
     }
 )
 OUTCOME_VALUES = frozenset({"interview", "rejected"})
-MatchView = Literal["matched", "screened_out"]
 RESCAN_MESSAGE = "We'll re-scan your matches shortly."
 
 
@@ -58,19 +59,10 @@ def get_profile(session: Session, user_id: uuid.UUID) -> dict[str, Any]:
 def list_matches(
     session: Session,
     user_id: uuid.UUID,
-    *,
-    view: MatchView,
 ) -> list[dict[str, Any]]:
-    if view == "matched":
-        verdict_filter = Match.gate_verdict == "pass"
-    else:
-        verdict_filter = Match.gate_verdict == "reject"
-
     # A dirty rematch (after a profile edit) inserts a fresh match row per job
     # and retains the superseded ones (generations/events hang off them). Only
-    # the newest row per job reflects the current profile, so the view dedups
-    # to it before applying the verdict filter — each job appears in exactly
-    # one view, per its latest verdict.
+    # the newest row per job reflects the current profile.
     latest_per_job = (
         select(Match.id)
         .where(Match.user_id == user_id)
@@ -84,8 +76,11 @@ def list_matches(
         .join(Job, Job.id == Match.job_id)
         .outerjoin(Company, Company.id == Job.company_id)
         .where(Match.id.in_(select(latest_per_job.c.id)))
-        .where(verdict_filter)
-        .order_by(Match.rerank_score.desc().nulls_last(), Match.cycle_at.desc())
+        .order_by(
+            qualification_label_rank_expr(Match.qualification_label).desc().nulls_last(),
+            Match.rerank_score.desc().nulls_last(),
+            Match.cycle_at.desc(),
+        )
     ).all()
 
     job_ids = [match.job_id for match, _job, _company in rows]
@@ -93,53 +88,6 @@ def list_matches(
     generation_by_match = _latest_generation_by_match(
         session, match_ids=[match.id for match, _job, _company in rows]
     )
-
-    # #region agent log
-    import json as _json
-    import os as _os
-    import time as _time
-
-    _lp = (
-        "/workspace-debug/debug-0e9f44.log"
-        if _os.path.isdir("/workspace-debug")
-        else "debug-0e9f44.log"
-    )
-    with open(_lp, "a") as _f:
-        _f.write(
-            _json.dumps(
-                {
-                    "sessionId": "0e9f44",
-                    "runId": "post-fix",
-                    "hypothesisId": "H1,H2",
-                    "location": "app/api/service.py:list_matches",
-                    "message": "matches view after per-job dedup",
-                    "data": {
-                        "view": view,
-                        "total_match_rows_for_user": int(
-                            session.scalar(
-                                select(func.count(Match.id)).where(
-                                    Match.user_id == user_id
-                                )
-                            )
-                            or 0
-                        ),
-                        "returned": [
-                            {
-                                "match_id": str(m.id),
-                                "job_id": str(m.job_id),
-                                "cycle_at": m.cycle_at.isoformat(),
-                                "verdict": m.gate_verdict,
-                                "has_generation": m.id in generation_by_match,
-                            }
-                            for m, _j, _c in rows
-                        ],
-                    },
-                    "timestamp": int(_time.time() * 1000),
-                }
-            )
-            + "\n"
-        )
-    # #endregion
 
     skill_ids: set[str] = set()
     for match, _job, _company in rows:
@@ -200,8 +148,8 @@ def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]
         },
         "match": {
             "rerank_score": match.rerank_score,
-            "gate_verdict": match.gate_verdict,
-            "gate_reason": match.gate_reason,
+            "qualification_label": match.qualification_label,
+            "screen_reason": match.screen_reason,
             "matched_skills": _skill_refs(match.matched_skills, label_map),
             "adjacent_skills": _skill_refs(match.adjacent_skills, label_map),
             "missing_skills": _skill_refs(match.missing_skills, label_map),
@@ -237,14 +185,12 @@ def admin_metrics(session: Session) -> dict[str, Any]:
             "jobs_extracted": funnel["jobs_extracted"],
             "matches_written_peak": funnel["matches_written_peak"],
             "screened": funnel["screened"],
-            "gate_pass": funnel["gate_pass"],
-            "gate_reject": funnel["gate_reject"],
             "generated": funnel["generated"],
             "verify_passed": funnel["verify_passed"],
             "applied": applied,
         },
         "extraction_coverage": corpus["extraction_coverage"],
-        "gate_rejection_rate": _gate_rejection_rate(funnel),
+        "label_distribution": funnel.get("label_distribution") or {},
         "llm_spend_usd": llm_spend_usd,
         "usage_by_stage": {
             stage: {
@@ -372,6 +318,13 @@ def trigger_generate(
             "action": "skipped_existing",
             "match_id": str(match.id),
             "generation_id": str(existing),
+        }
+
+    if not try_consume_quota(session, match.user_id):
+        return {
+            "action": "quota_exhausted",
+            "match_id": str(match.id),
+            "generation_id": None,
         }
 
     queue.enqueue(
@@ -510,8 +463,8 @@ def _match_payload(
         "comp_max": job.comp_max,
         "posted_at": _iso(job.posted_at),
         "rerank_score": match.rerank_score,
-        "gate_verdict": match.gate_verdict,
-        "gate_reason": match.gate_reason,
+        "qualification_label": match.qualification_label,
+        "screen_reason": match.screen_reason,
         "matched_skills": _skill_refs(match.matched_skills, label_map),
         "adjacent_skills": _skill_refs(match.adjacent_skills, label_map),
         "missing_skills": _skill_refs(match.missing_skills, label_map),
@@ -547,14 +500,6 @@ def _empty_ui_state() -> dict[str, Any]:
         "applied_at": None,
         "outcome": None,
     }
-
-
-def _gate_rejection_rate(funnel: dict[str, Any]) -> float | None:
-    screened = int(funnel.get("screened") or 0)
-    if screened <= 0:
-        return None
-    gate_reject = int(funnel.get("gate_reject") or 0)
-    return round(gate_reject / screened, 4)
 
 
 def _iso(value: datetime | None) -> str | None:

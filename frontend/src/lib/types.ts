@@ -31,8 +31,14 @@ export type Match = {
   comp_max: number | null;
   posted_at: string | null;
   rerank_score: number | null;
-  gate_verdict: "pass" | "reject";
-  gate_reason: string | null;
+  qualification_label:
+    | "unqualified"
+    | "minimally_qualified"
+    | "overqualified"
+    | "potentially_qualified"
+    | "clearly_qualified"
+    | null;
+  screen_reason: string | null;
   matched_skills: SkillRef[];
   adjacent_skills: SkillRef[];
   missing_skills: SkillRef[];
@@ -97,8 +103,8 @@ export type Generation = {
   };
   match: {
     rerank_score: number | null;
-    gate_verdict: string | null;
-    gate_reason: string | null;
+    qualification_label: string | null;
+    screen_reason: string | null;
     matched_skills: SkillRef[];
     adjacent_skills: SkillRef[];
     missing_skills: SkillRef[];
@@ -110,7 +116,7 @@ export type AdminMetrics = {
   collected_at: string;
   funnel: Record<string, number>;
   extraction_coverage: number | null;
-  gate_rejection_rate: number | null;
+  label_distribution: Record<string, number>;
   llm_spend_usd: number;
   usage_by_stage: Record<
     string,

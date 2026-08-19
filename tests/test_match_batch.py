@@ -407,6 +407,41 @@ def test_seniority_band_match_mismatch_and_null_passthrough(db_session: Session)
 
 
 @requires_db
+def test_screen_score_floor_writes_match_without_enqueue(db_session: Session) -> None:
+    user, job = _seed_pair(db_session, extracted=True)
+    queue = RecordingQueue()
+
+    result = match_batch(
+        db_session,
+        {
+            "mode": "incremental",
+            "since": SINCE_EPOCH,
+            "cycle_at": "2026-08-17T18:00:00+00:00",
+            "user_ids": [str(user.id)],
+        },
+        queue,
+        settings=Settings(screen_score_floor=1.1),
+    )
+    assert result.matches_written == 1
+    assert result.screens_enqueued == 0
+    assert not any(name == "screen-job" for name, _ in queue.tasks)
+    match = db_session.scalars(select(Match).where(Match.user_id == user.id)).one()
+    assert match.qualification_label is None
+    actions = [
+        e.action
+        for e in db_session.scalars(
+            select(PipelineEvent).where(
+                PipelineEvent.stage == "match-batch",
+                PipelineEvent.user_id == user.id,
+                PipelineEvent.job_id == job.id,
+            )
+        ).all()
+    ]
+    assert "below_screen_floor" in actions
+    assert "enqueued_screen" not in actions
+
+
+@requires_db
 def test_invalid_mode_is_permanent(db_session: Session) -> None:
     result = match_batch(db_session, {"mode": "nope"}, RecordingQueue(), settings=Settings())
     assert result.action == "invalid_mode"

@@ -1,14 +1,16 @@
-"""Deterministic hard-requirement gate: set math on canonical skill IDs.
+"""Deterministic hard-requirement overlap: set math on canonical skill IDs.
 
 No string matching. Both sides are already linked (extract-job / profile
-ingest). Current policy records the missing count and does not auto-drop;
-``hard_req_missing_drop_threshold`` is the future knob.
+ingest). The missing count is recorded on the screen event; it does not
+hard-reject. Only the metadata prefilter drops candidates.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+
+from app.screen.labels import AUTO_GENERATE_LABEL, LOW_LABELS
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,15 +23,6 @@ class HardRequirementOverlap:
     @property
     def missing_count(self) -> int:
         return len(self.missing_ids)
-
-    def exceeds_drop_threshold(self, threshold: int | None) -> bool:
-        """True only when a configured threshold is set and missing_count meets it.
-
-        ``None`` (PoC default) means never auto-drop — a single miss is not a reject.
-        """
-        if threshold is None:
-            return False
-        return self.missing_count >= threshold
 
 
 def hard_requirement_overlap(
@@ -50,13 +43,18 @@ def hard_requirement_overlap(
     return HardRequirementOverlap(matched_ids=matched, missing_ids=missing)
 
 
-def is_reranker_gate_disagreement(
+def is_rank_label_disagreement(
     rerank_score: float | None,
-    verdict: str,
+    label: str,
     *,
-    threshold: float,
+    high_threshold: float,
+    low_threshold: float,
 ) -> bool:
-    """Gate reject of a high rerank score — the feedback-loop signal."""
-    if verdict != "reject" or rerank_score is None:
+    """High rerank + low label, or low rerank + clearly_qualified."""
+    if rerank_score is None:
         return False
-    return rerank_score >= threshold
+    if rerank_score >= high_threshold and label in LOW_LABELS:
+        return True
+    if rerank_score <= low_threshold and label == AUTO_GENERATE_LABEL:
+        return True
+    return False

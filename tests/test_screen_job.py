@@ -56,11 +56,20 @@ class FakeGateLLM:
         return self.decision, self.usage
 
 
-PASS = GateDecision(verdict="pass", reason="Strong overlap on backend skills.", confidence=0.8)
-REJECT = GateDecision(
-    verdict="reject",
+CLEARLY = GateDecision(
+    label="clearly_qualified",
+    reason="Strong overlap on backend skills.",
+    confidence=0.8,
+)
+UNQUALIFIED = GateDecision(
+    label="unqualified",
     reason="Role needs distributed-systems depth the profile does not show.",
     confidence=0.86,
+)
+POTENTIAL = GateDecision(
+    label="potentially_qualified",
+    reason="Adjacent backend experience covers the core of the role.",
+    confidence=0.7,
 )
 
 
@@ -123,16 +132,16 @@ def _add_match(
     job: Job,
     *,
     rerank_score: float | None = 0.91,
-    gate_verdict: str | None = None,
-    gate_reason: str | None = None,
+    qualification_label: str | None = None,
+    screen_reason: str | None = None,
 ) -> Match:
     match = Match(
         user_id=user.id,
         job_id=job.id,
         cycle_at=datetime.now(tz=UTC),
         rerank_score=rerank_score,
-        gate_verdict=gate_verdict,
-        gate_reason=gate_reason,
+        qualification_label=qualification_label,
+        screen_reason=screen_reason,
         matched_skills=["esco:python"],
         adjacent_skills=[],
         missing_skills=["esco:terraform"],
@@ -146,24 +155,30 @@ def test_gate_prompt_forbids_fabrication() -> None:
     lowered = GATE_SYSTEM_PROMPT.lower()
     assert "do not invent" in lowered
     assert "single missing skill" in lowered
-    assert "pass" in lowered and "reject" in lowered
+    assert "clearly_qualified" in lowered
+    assert "unqualified" in lowered
 
 
-def test_gate_decision_normalizes_and_rejects_bad_verdict() -> None:
+def test_gate_decision_normalizes_and_rejects_bad_label() -> None:
     parsed = GateDecision.model_validate(
-        {"verdict": "PASS", "reason": "ok", "confidence": 1.5, "extra": "ignored"}
+        {
+            "label": "Clearly Qualified",
+            "reason": "ok",
+            "confidence": 1.5,
+            "extra": "ignored",
+        }
     ).normalized()
-    assert parsed.verdict == "pass"
+    assert parsed.label == "clearly_qualified"
     assert parsed.confidence == 1.0
-    # temperature=0 + enforced schema: a bad verdict is deterministic — retrying
+    # temperature=0 + enforced schema: a bad label is deterministic — retrying
     # via the queue would pay for the same bad output, so it is permanent.
     with pytest.raises(PermanentLLMError):
-        GateDecision(verdict="maybe", reason="x", confidence=0.1).normalized()
+        GateDecision(label="maybe", reason="x", confidence=0.1).normalized()
 
 
 def test_gemini_gate_parses_usage_and_json() -> None:
     payload = {
-        "candidates": [{"content": {"parts": [{"text": PASS.model_dump_json()}]}}],
+        "candidates": [{"content": {"parts": [{"text": CLEARLY.model_dump_json()}]}}],
         "usageMetadata": {"promptTokenCount": 220, "candidatesTokenCount": 35},
     }
     response = httpx.Response(
@@ -174,7 +189,7 @@ def test_gemini_gate_parses_usage_and_json() -> None:
     client = GeminiGateLLM(api_key="test-key", model="gemini-3.5-flash-lite")
     with patch("app.extract.llm.httpx.post", return_value=response):
         decision, usage = client.screen(job_doc="Job: backend", profile_doc="Profile: python")
-    assert decision.verdict == "pass"
+    assert decision.label == "clearly_qualified"
     assert usage.prompt_tokens == 220
     assert usage.completion_tokens == 35
     assert usage.cost_usd > 0
@@ -196,12 +211,14 @@ def test_gemini_gate_429_is_retryable_without_body() -> None:
 
 
 @requires_db
-def test_pass_enqueues_generate_and_decrements_quota(db_session: Session) -> None:
+def test_clearly_qualified_enqueues_generate_and_decrements_quota(
+    db_session: Session,
+) -> None:
     user = _add_user(db_session, quota_remaining=3)
     job = _add_job(db_session)
     match = _add_match(db_session, user, job)
     queue = RecordingQueue()
-    llm = FakeGateLLM(PASS)
+    llm = FakeGateLLM(CLEARLY)
 
     result = screen_job(
         db_session,
@@ -211,8 +228,8 @@ def test_pass_enqueues_generate_and_decrements_quota(db_session: Session) -> Non
         settings=Settings(),
     )
 
-    assert result.action == "gate_pass"
-    assert result.gate_verdict == "pass"
+    assert result.action == "screened"
+    assert result.qualification_label == "clearly_qualified"
     assert result.generate_enqueued is True
     assert result.prompt_tokens == 180
     assert result.completion_tokens == 40
@@ -231,14 +248,17 @@ def test_pass_enqueues_generate_and_decrements_quota(db_session: Session) -> Non
 
     db_session.refresh(match)
     db_session.refresh(user)
-    assert match.gate_verdict == "pass"
-    assert match.gate_reason == PASS.reason
+    assert match.qualification_label == "clearly_qualified"
+    assert match.screen_reason == CLEARLY.reason
     assert user.quota_remaining == 2
 
     events = db_session.scalars(
         select(PipelineEvent).where(PipelineEvent.stage == "screen-job")
     ).all()
-    assert any(e.action == "gate_pass" and e.user_id == user.id for e in events)
+    assert any(e.action == "screened" and e.user_id == user.id for e in events)
+    assert any(
+        (e.details or {}).get("qualification_label") == "clearly_qualified" for e in events
+    )
 
 
 @requires_db
@@ -247,7 +267,7 @@ def test_quota_exhaustion_records_pass_and_does_not_enqueue(db_session: Session)
     job = _add_job(db_session)
     match = _add_match(db_session, user, job)
     queue = RecordingQueue()
-    llm = FakeGateLLM(PASS)
+    llm = FakeGateLLM(CLEARLY)
 
     result = screen_job(
         db_session,
@@ -258,13 +278,13 @@ def test_quota_exhaustion_records_pass_and_does_not_enqueue(db_session: Session)
     )
 
     assert result.action == "quota_exhausted"
-    assert result.gate_verdict == "pass"
+    assert result.qualification_label == "clearly_qualified"
     assert result.generate_enqueued is False
     assert queue.tasks == []
     db_session.refresh(user)
     db_session.refresh(match)
     assert user.quota_remaining == 0
-    assert match.gate_verdict == "pass"
+    assert match.qualification_label == "clearly_qualified"
     actions = [
         e.action
         for e in db_session.scalars(
@@ -272,7 +292,7 @@ def test_quota_exhaustion_records_pass_and_does_not_enqueue(db_session: Session)
         ).all()
     ]
     assert "quota_exhausted" in actions
-    assert "gate_pass" not in actions
+    assert "screened" not in actions
 
 
 @requires_db
@@ -281,13 +301,13 @@ def test_idempotent_redelivery_is_noop(db_session: Session) -> None:
     job = _add_job(db_session)
     match = _add_match(db_session, user, job)
     queue = RecordingQueue()
-    llm = FakeGateLLM(PASS)
+    llm = FakeGateLLM(CLEARLY)
     settings = Settings()
 
     first = screen_job(
         db_session, {"match_id": str(match.id)}, queue, llm=llm, settings=settings
     )
-    assert first.action == "gate_pass"
+    assert first.action == "screened"
     db_session.refresh(user)
     quota_after = user.quota_remaining
 
@@ -295,13 +315,13 @@ def test_idempotent_redelivery_is_noop(db_session: Session) -> None:
         db_session, {"match_id": str(match.id)}, queue, llm=llm, settings=settings
     )
     assert second.action == "skipped_screened"
-    assert second.gate_verdict == "pass"
+    assert second.qualification_label == "clearly_qualified"
     assert llm.calls == 1
     assert len(queue.tasks) == 1
     db_session.refresh(user)
     db_session.refresh(match)
     assert user.quota_remaining == quota_after
-    assert match.gate_reason == PASS.reason
+    assert match.screen_reason == CLEARLY.reason
 
     actions = [
         e.action
@@ -309,17 +329,17 @@ def test_idempotent_redelivery_is_noop(db_session: Session) -> None:
             select(PipelineEvent).where(PipelineEvent.stage == "screen-job")
         ).all()
     ]
-    assert actions.count("gate_pass") == 1
+    assert actions.count("screened") == 1
     assert actions.count("skipped_screened") == 1
 
 
 @requires_db
-def test_reject_is_recorded_and_high_rerank_logs_disagreement(db_session: Session) -> None:
+def test_low_label_high_rerank_logs_disagreement(db_session: Session) -> None:
     user = _add_user(db_session, quota_remaining=4)
     job = _add_job(db_session)
     match = _add_match(db_session, user, job, rerank_score=0.93)
     queue = RecordingQueue()
-    llm = FakeGateLLM(REJECT)
+    llm = FakeGateLLM(UNQUALIFIED)
 
     with patch("app.screen.service.logger.info") as log_info:
         result = screen_job(
@@ -331,16 +351,16 @@ def test_reject_is_recorded_and_high_rerank_logs_disagreement(db_session: Sessio
         )
 
     logged = " ".join(str(call.args[0]) for call in log_info.call_args_list)
-    assert "reranker_gate_disagreement" in logged
-    assert REJECT.reason not in logged
+    assert "rank_label_disagreement" in logged
+    assert UNQUALIFIED.reason not in logged
 
-    assert result.action == "gate_reject"
+    assert result.action == "screened"
     assert result.generate_enqueued is False
     assert queue.tasks == []
     db_session.refresh(match)
     db_session.refresh(user)
-    assert match.gate_verdict == "reject"
-    assert match.gate_reason == REJECT.reason
+    assert match.qualification_label == "unqualified"
+    assert match.screen_reason == UNQUALIFIED.reason
     assert user.quota_remaining == 4
 
     actions = [
@@ -349,34 +369,114 @@ def test_reject_is_recorded_and_high_rerank_logs_disagreement(db_session: Sessio
             select(PipelineEvent).where(PipelineEvent.stage == "screen-job")
         ).all()
     ]
-    assert "gate_reject" in actions
-    assert "reranker_gate_disagreement" in actions
+    assert "screened" in actions
+    assert "rank_label_disagreement" in actions
 
 
 @requires_db
-def test_hard_req_threshold_skips_llm_when_configured(db_session: Session) -> None:
-    user = _add_user(db_session, skill_ids=["esco:python"])
-    job = _add_job(db_session, skill_ids=["esco:python", "esco:terraform"])
-    match = _add_match(db_session, user, job)
+def test_clearly_qualified_low_rerank_logs_disagreement(db_session: Session) -> None:
+    user = _add_user(db_session, quota_remaining=4)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job, rerank_score=0.12)
     queue = RecordingQueue()
-    llm = FakeGateLLM(PASS)
+    llm = FakeGateLLM(CLEARLY)
 
     result = screen_job(
         db_session,
         {"match_id": str(match.id)},
         queue,
         llm=llm,
-        settings=Settings(hard_req_missing_drop_threshold=1),
+        settings=Settings(rerank_low_score_threshold=0.3),
     )
 
-    assert result.action == "gate_reject"
-    assert result.hard_req_missing_count == 1
-    assert llm.calls == 0
-    assert result.prompt_tokens == 0
+    assert result.action == "screened"
+    assert result.generate_enqueued is True
+    actions = [
+        e.action
+        for e in db_session.scalars(
+            select(PipelineEvent).where(PipelineEvent.stage == "screen-job")
+        ).all()
+    ]
+    assert "rank_label_disagreement" in actions
+
+
+@requires_db
+def test_potential_label_does_not_enqueue_or_consume_quota(db_session: Session) -> None:
+    user = _add_user(db_session, quota_remaining=3)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    queue = RecordingQueue()
+    llm = FakeGateLLM(POTENTIAL)
+
+    result = screen_job(
+        db_session,
+        {"match_id": str(match.id)},
+        queue,
+        llm=llm,
+        settings=Settings(),
+    )
+
+    assert result.action == "screened"
+    assert result.qualification_label == "potentially_qualified"
+    assert result.generate_enqueued is False
+    assert queue.tasks == []
+    db_session.refresh(user)
     db_session.refresh(match)
-    assert match.gate_verdict == "reject"
-    assert match.gate_reason is not None
-    assert "missing 1" in match.gate_reason
+    assert user.quota_remaining == 3
+    assert match.qualification_label == "potentially_qualified"
+
+
+@requires_db
+def test_missing_docs_leaves_label_null(db_session: Session) -> None:
+    user = _add_user(db_session, synthesized_doc=None)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    queue = RecordingQueue()
+    llm = FakeGateLLM(CLEARLY)
+
+    result = screen_job(
+        db_session,
+        {"match_id": str(match.id)},
+        queue,
+        llm=llm,
+        settings=Settings(),
+    )
+
+    assert result.action == "missing_docs"
+    assert llm.calls == 0
+    assert queue.tasks == []
+    db_session.refresh(match)
+    assert match.qualification_label is None
+    actions = [
+        e.action
+        for e in db_session.scalars(
+            select(PipelineEvent).where(PipelineEvent.job_id == job.id)
+        ).all()
+    ]
+    assert "missing_docs" in actions
+
+
+@requires_db
+def test_hard_req_missing_still_calls_llm(db_session: Session) -> None:
+    user = _add_user(db_session, skill_ids=["esco:python"])
+    job = _add_job(db_session, skill_ids=["esco:python", "esco:terraform"])
+    match = _add_match(db_session, user, job)
+    queue = RecordingQueue()
+    llm = FakeGateLLM(POTENTIAL)
+
+    result = screen_job(
+        db_session,
+        {"match_id": str(match.id)},
+        queue,
+        llm=llm,
+        settings=Settings(),
+    )
+
+    assert result.action == "screened"
+    assert result.hard_req_missing_count == 1
+    assert llm.calls == 1
+    db_session.refresh(match)
+    assert match.qualification_label == "potentially_qualified"
 
 
 @requires_db
@@ -394,7 +494,7 @@ def test_retryable_llm_writes_event(db_session: Session) -> None:
             settings=Settings(),
         )
     db_session.refresh(match)
-    assert match.gate_verdict is None
+    assert match.qualification_label is None
     events = db_session.scalars(
         select(PipelineEvent).where(PipelineEvent.job_id == job.id)
     ).all()
@@ -420,7 +520,7 @@ def test_permanent_llm_failure_is_2xx_and_leaves_match_screenable(
     assert result.action == "llm_permanent_failure"
     assert queue.tasks == []
     db_session.refresh(match)
-    assert match.gate_verdict is None  # no fabricated verdict
+    assert match.qualification_label is None  # no fabricated verdict
     db_session.refresh(user)
     assert user.quota_remaining == 3  # quota untouched
     events = db_session.scalars(
@@ -467,14 +567,15 @@ def test_screen_http_success_then_noop(apply_migrations: None) -> None:
     application = create_app(
         settings=settings,
         queue=LocalTaskQueue("http://127.0.0.1:9"),
-        screen_llm=FakeGateLLM(PASS),
+        screen_llm=FakeGateLLM(CLEARLY),
     )
     try:
         with TestClient(application) as client:
             first = client.post("/handlers/screen-job", json={"match_id": str(match_id)})
             assert first.status_code == 200
             body = first.json()
-            assert body["action"] == "gate_pass"
+            assert body["action"] == "screened"
+            assert body["qualification_label"] == "clearly_qualified"
             assert body["prompt_tokens"] == 180
             assert body["generate_enqueued"] is True
             second = client.post("/handlers/screen-job", json={"match_id": str(match_id)})

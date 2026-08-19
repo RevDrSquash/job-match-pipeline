@@ -48,7 +48,7 @@ function buildContextBlock(generation: Generation) {
     `Matched skills: ${formatSkillList(generation.match.matched_skills)}`,
     `Adjacent skills: ${formatSkillList(generation.match.adjacent_skills)}`,
     `Missing skills (do not claim): ${formatSkillList(generation.match.missing_skills)}`,
-    `Gate reasoning: ${generation.match.gate_reason ?? "No gate note"}`,
+    `Screen reasoning: ${generation.match.screen_reason ?? "No screen note"}`,
     "",
     `Verification status: ${generation.verify_status ?? "pending"}`,
     "",

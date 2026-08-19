@@ -166,7 +166,7 @@ Two invariants make the future layer possible; keep them:
 
 ## 11. Deferred from the local UI milestone
 
-The local UI cut (`docs/UI.md`, "Local UI milestone") ships the match feed, screened-out view, profile editor, generation handoff, and admin dashboard, but defers two designed features that need decisions before v1:
+The local UI cut (`docs/UI.md`, "Local UI milestone") ships the match feed, profile editor, generation handoff, and admin dashboard, but defers two designed features that need decisions before v1:
 
 * **PDF / docx resume export.** The handoff screen offers markdown download and a paste-ready context block only. Real export needs the templating decision already listed in UI.md's open questions (do users choose a template, or do we impose one?) plus a rendering dependency; don't pick a library before picking a templating answer.
 * **Email digest one-click outcome links.** The digest's one-click buttons ("got interview" / "rejected" on applied jobs) are the highest-yield placement for the most valuable label, but they require an authenticated-by-token link design — a signed, expiring, single-purpose token that can write one `outcome` event without a session. That token scheme (scope, expiry, revocation on account deletion) is undesigned; the local milestone has no auth at all, so nothing here constrains it yet. Design it together with the auth/session work, not before.
@@ -179,7 +179,7 @@ Official ESCO has no concept for much of the modern software stack (Docker, Kube
 
 ## 13. `matches` table should be renamed (`match_results`)
 
-The `matches` table stores per-cycle **evaluation snapshots** — `(user, job)` plus `cycle_at`, rerank score, gate verdict, and skill buckets computed against the profile as it existed at that moment. Rows accumulate: a dirty rematch after a profile edit inserts a fresh row per job and retains superseded ones, and "the current match" is a derived concept (latest row per job — the read-side rule in `docs/UI.md`, API layer). The name `matches` misreads as a unique user↔job relationship and has already caused confusion (a 2026-08-19 debug session traced duplicate match-feed cards to exactly this misunderstanding).
+The `matches` table stores per-cycle **evaluation snapshots** — `(user, job)` plus `cycle_at`, rerank score, qualification label, and skill buckets computed against the profile as it existed at that moment. Rows accumulate: a dirty rematch after a profile edit inserts a fresh row per job and retains superseded ones, and "the current match" is a derived concept (latest row per job — the read-side rule in `docs/UI.md`, API layer). The name `matches` misreads as a unique user↔job relationship and has already caused confusion (a 2026-08-19 debug session traced duplicate match-feed cards to exactly this misunderstanding).
 
 **Decision (owner, 2026-08-19):** rename to `match_results`. ("`match_evaluations`" was rejected — "evaluations" already means the eval suite in this repo.) Purely mechanical (Alembic rename + model/query/docs sweep), but it touches most of the pipeline, so do it as its own change, ideally after DEF-35 to avoid churning the same files twice.
 
@@ -190,3 +190,13 @@ The `matches` table stores per-cycle **evaluation snapshots** — `(user, job)` 
 Also decided: the match result stops being a hard generation input. Skill buckets are cheap (`app/match/skills.py`, pure local set logic, no LLM), so **generate-resume uses the provided match's buckets when available and recomputes them itself when not** — the `missing_skills` bucket must always be present either way (it is the anti-fabrication input, hard rule 1).
 
 Implementation plan lives in Linear **DEF-35**: `generations` gains `user_id` (FK users, CASCADE — preserves the §10 deletion path) and `job_id` (FK jobs, SET NULL); `match_id` becomes nullable SET-NULL provenance. One open point is flagged in the issue for owner confirmation: keying "skip if a generation already exists" on `(user, job)` instead of match id, which stops rematch cycles from auto-re-spending quota on already-generated jobs.
+
+## 15. Qualification-label eval set (future work)
+
+DEF-30 replaced the binary gate verdict with an ordinal qualification label. `docs/EVALUATION.md` §7 now describes a label/ranking eval (confusion matrix vs. human judgment, adjacent-tier vs. inversion errors). There is no labeled set yet — the current `jobmatch evals run` suites (extraction, skill linking, retrieval, fabrication) do not cover the screen prompt. Add a versioned screen-label fixture set before treating prompt edits as gated by that suite. Until then, re-run the existing four suites on screen-prompt changes (operational discipline) and rely on `rank_label_disagreement` events plus the owner's live review.
+
+## 16. Qualification report — logistics axes surfaced separately (future work)
+
+**Decision (owner, 2026-08-19):** the screen's qualification label measures qualification fit only — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes and must not move the label or drive `screen_reason`. Trigger: a live screen labeled a strong-overlap match `unqualified` with the reason "the candidate is not currently based in the San Francisco Bay Area or New York City as required by the role." The gate prompt (`app/screen/llm.py`) and the screen-job doc now say this explicitly; `docs/EVALUATION.md` §7 counts logistics-lowered labels as rubric violations.
+
+Logistics mismatches still carry real information the user should see — the prefilter only catches what `user_filters` constrains, so an in-role, wrong-city posting legitimately reaches the screen. **Future work:** a comprehensive per-match "qualification report" that presents the fit judgment and the logistics axes side by side (e.g. qualification label + a location/arrangement/auth/comp checklist), instead of collapsing everything into one label and one sentence. Undesigned; no schema or UI commitment yet. Until it exists, logistics mismatches simply don't appear in the screen output.

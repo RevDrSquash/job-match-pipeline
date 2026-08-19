@@ -1,4 +1,4 @@
-"""Cheap LLM gate: condensed JD + condensed profile → structured verdict.
+"""Cheap LLM screen: condensed JD + condensed profile → qualification label.
 
 The condensed profile is personal information. Never log prompt or completion
 text, and never put model output into exception args (docs/PRIVACY_AND_COMPLIANCE.md).
@@ -20,60 +20,85 @@ from app.extract.llm import (
     RetryableLLMError,
     gemini_generate_json,
 )
+from app.screen.labels import QUALIFICATION_LABELS, normalize_qualification_label
 
 logger = logging.getLogger(__name__)
 
 GATE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
     "properties": {
-        "verdict": {"type": "STRING", "enum": ["pass", "reject"]},
+        "label": {"type": "STRING", "enum": list(QUALIFICATION_LABELS)},
         "reason": {"type": "STRING"},
         "confidence": {"type": "NUMBER"},
     },
-    "required": ["verdict", "reason", "confidence"],
+    "required": ["label", "reason", "confidence"],
 }
 
 GATE_SYSTEM_PROMPT = """\
-You are a job-fit screening gate. Given a condensed job description and a \
-condensed candidate profile, decide whether the candidate is a plausible fit \
-worth generating a tailored resume.
+You are a job-fit screening advisor. Given a condensed job description and a \
+condensed candidate profile, assign an ordinal qualification label. This is \
+a ranking signal, not a hard reject: missing listed skills is often a \
+reasonable situation in which to still apply.
+
+The label measures how qualified the candidate is for the work itself — \
+skills, experience, domain, and seniority. Logistics are separate axes: \
+location, relocation, work authorization, onsite/remote/hybrid arrangement, \
+timezone, compensation, and start date must not raise or lower the label \
+and must not be the basis of the reason.
 
 Return only JSON matching the schema:
-- verdict: "pass" or "reject"
-- reason: one specific sentence a user can read in a screened-out view. Do \
+- label: one of the five values below
+- reason: one specific sentence a user can read on a match card. Do \
 not invent employers, skills, years, or numbers that are not in the inputs.
 - confidence: 0.0–1.0
 
+Label rubric (pick exactly one):
+- unqualified: the profile is in the wrong field, lacks foundational \
+requirements for the role, or is far below the stated seniority. Applying \
+would not be credible.
+- minimally_qualified: thin overlap. The candidate could apply but would \
+be stretching on core requirements or seniority.
+- overqualified: the profile exceeds the role's seniority or scope enough \
+that the candidate may be a poor match for the hiring bar (too senior / \
+too specialized), not because they lack skills.
+- potentially_qualified: a plausible fit with adjacent experience or a \
+few missing listed skills. Applying is reasonable.
+- clearly_qualified: the profile meets the role's core requirements with \
+only minor or no gaps. A tailored resume is clearly warranted.
+
 Rules:
+- Judge only qualification fit. A candidate in the wrong city with the \
+right skills is not unqualified; ignore logistics mismatches entirely.
 - Do not invent skills or experience the profile does not contain.
-- Reject when the profile clearly cannot meet the role.
-- Pass when the profile is a reasonable fit, including adjacent experience.
-- A single missing skill is not automatic grounds for reject.
+- A single missing skill is not automatic grounds for unqualified.
+- Missing several listed skills can still be potentially_qualified when \
+the core of the role is covered.
 - Never include resume text, contact details, or identifiers beyond the inputs.
 """
 
 
 class GateDecision(BaseModel):
-    """Structured cheap-gate output. Extra keys from the model are ignored."""
+    """Structured cheap-screen output. Extra keys from the model are ignored."""
 
     model_config = ConfigDict(extra="ignore")
 
-    verdict: str
+    label: str
     reason: str = ""
     confidence: float = Field(default=0.0)
 
     def normalized(self) -> GateDecision:
-        verdict = (self.verdict or "").strip().lower()
-        if verdict not in {"pass", "reject"}:
-            # temperature=0 + enforced schema: a bad verdict is deterministic.
-            raise PermanentLLMError("gate llm invalid verdict")
+        try:
+            label = normalize_qualification_label(self.label)
+        except ValueError:
+            # temperature=0 + enforced schema: a bad label is deterministic.
+            raise PermanentLLMError("gate llm invalid label") from None
         reason = (self.reason or "").strip()
         try:
             confidence = float(self.confidence)
         except (TypeError, ValueError):
             raise PermanentLLMError("gate llm invalid confidence") from None
         confidence = min(1.0, max(0.0, confidence))
-        return GateDecision(verdict=verdict, reason=reason, confidence=confidence)
+        return GateDecision(label=label, reason=reason, confidence=confidence)
 
 
 @runtime_checkable
@@ -81,7 +106,7 @@ class GateLLM(Protocol):
     def screen(
         self, *, job_doc: str, profile_doc: str
     ) -> tuple[GateDecision, LLMUsage]:
-        """Structured gate. Raises RetryableLLMError on transient failures."""
+        """Structured screen. Raises RetryableLLMError on transient failures."""
 
 
 def log_gate_usage(usage: LLMUsage, *, match_id: str | None = None) -> None:
@@ -106,7 +131,7 @@ def _api_key(settings: Settings) -> str:
 
 
 class GeminiGateLLM:
-    """Budget Gemini structured gate. Model name comes from Settings, not call sites."""
+    """Budget Gemini structured screen. Model name comes from Settings, not call sites."""
 
     def __init__(
         self,

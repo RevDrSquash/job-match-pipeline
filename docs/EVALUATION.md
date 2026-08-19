@@ -21,7 +21,7 @@ Start here. These cover the errors that are either invisible in production or ca
 
 * **Set:** ~100 hand-labeled job descriptions, spread across sources and seniority levels
 * **Measures:** field-level accuracy on title, seniority, comp range, location, work arrangement; precision/recall on hard requirements vs. nice-to-haves
-* **Watch:** the hard/nice-to-have distinction specifically — it drives the deterministic gate, so misclassification there directly causes bad drops
+* **Watch:** the hard/nice-to-have distinction specifically — it still feeds skill buckets and the recorded hard-req missing count, even though it no longer auto-drops
 
 ### 2. Skill linking precision/recall
 
@@ -74,13 +74,15 @@ Inject known fabrications into otherwise-clean generated resumes and measure det
   * LLM grounding check — measures semantic drift detection
 * Include the case the design specifically guards against: confirm the grounding check still catches fabrications **when the JD is withheld**, and measure how much worse it does when the JD is included. That delta is the justification for the JD-blind design and should be documented.
 
-### 7. Gate agreement
+### 7. Qualification-label / ranking agreement
 
-* Confusion matrix of LLM gate verdict vs. human judgment
-* The two error types cost differently and should be tracked separately:
-  * **False pass** — wasted generation (~$0.065)
-  * **False reject** — user silently missed a job they'd have wanted
-* False rejects are worse for the product and invisible to the user, so weight accordingly
+* Confusion matrix of LLM qualification label vs. human judgment (once a labeled set exists — see `OPEN_ISSUES.md`)
+* Adjacent-tier mistakes (e.g. `potentially_qualified` vs `clearly_qualified`) are cheaper than inversions (`unqualified` vs `clearly_qualified`)
+* The two error types that still cost differently:
+  * **Over-promotion** — wasted auto-generation on a `clearly_qualified` miss (~$0.065)
+  * **Under-ranking** — a good job sinks below the fold
+* Under-ranking is worse for the product and invisible to the user, so weight accordingly
+* Include logistics-only cases in the labeled set (right skills, wrong city / arrangement / comp): the label must reflect qualification fit only, so a label lowered for a logistics mismatch is a rubric violation, not an adjacent-tier judgment call (`TASKS_AND_HANDLERS.md`, screen-job)
 
 ### 8. Resume quality
 
@@ -119,13 +121,13 @@ and records the measured baselines in [`POC_RESULTS.md`](POC_RESULTS.md).
 
 Start with our own resume against a few hundred real postings, hand-labeled. That is enough for evals 1–3 immediately, and for a first cut at 4.
 
-`pipeline_events` grows the set from there — shown, skipped, gate-rejected, generated, applied. Note the privacy constraint: retention of this table for training purposes needs its own consent basis and must survive deletion requests (see Privacy and Compliance).
+`pipeline_events` grows the set from there — shown, skipped, screened, generated, applied. Note the privacy constraint: retention of this table for training purposes needs its own consent basis and must survive deletion requests (see Privacy and Compliance).
 
 ## Operational discipline
 
 * **Every prompt change re-runs the full suite.** Prompt edits are code changes and regress silently otherwise.
 * **Track cost and latency per stage as eval dimensions**, not just quality. Token counts per stage are the biggest source of error in the cost model.
-* **Log the reranker/gate disagreement signal** — cases where the gate rejects something the reranker scored highly. Highest-value signal for tuning both, and driving that rate down directly cuts COGS.
+* **Log the rank/label disagreement signal** — high `rerank_score` + low label, and the inverse. Highest-value signal for tuning both.
 * Version the eval sets. A quality change is meaningless if the set moved underneath it.
 
 ## Open questions

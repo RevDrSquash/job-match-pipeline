@@ -198,6 +198,19 @@ def match_batch(
                 job_id=job_id,
                 score=result.score,
             )
+            if (
+                settings.screen_score_floor is not None
+                and result.score < settings.screen_score_floor
+            ):
+                record_pipeline_event(
+                    session,
+                    stage=STAGE,
+                    action="below_screen_floor",
+                    user_id=user_id,
+                    job_id=job_id,
+                    score=result.score,
+                )
+                continue
             queue.enqueue(
                 "screen-job",
                 {

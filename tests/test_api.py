@@ -96,17 +96,18 @@ def _add_match(
     user: User,
     job: Job,
     *,
-    gate_verdict: str,
-    gate_reason: str | None = None,
+    qualification_label: str | None = None,
+    screen_reason: str | None = None,
     cycle_at: datetime | None = None,
+    rerank_score: float | None = 0.82,
 ) -> Match:
     match = Match(
         user_id=user.id,
         job_id=job.id,
         cycle_at=cycle_at or datetime.now(tz=UTC),
-        rerank_score=0.82,
-        gate_verdict=gate_verdict,
-        gate_reason=gate_reason,
+        rerank_score=rerank_score,
+        qualification_label=qualification_label,
+        screen_reason=screen_reason,
         matched_skills=["esco:python"],
         adjacent_skills=[],
         missing_skills=["esco:terraform"],
@@ -175,36 +176,48 @@ def test_patch_profile_sets_rescan_message(api_client: TestClient, db_session: S
 
 
 @requires_db
-def test_list_matches_matched_and_screened_out(
+def test_list_matches_is_single_ranked_list(
     api_client: TestClient, db_session: Session
 ) -> None:
     user = _seed_user(db_session)
-    pass_job = _add_company_job(db_session, title="Pass Role")
-    reject_job = _add_company_job(db_session, title="Reject Role")
-    passed = _add_match(db_session, user, pass_job, gate_verdict="pass")
-    rejected = _add_match(
+    high_job = _add_company_job(db_session, title="Clear Role")
+    low_job = _add_company_job(
+        db_session, title="Low Role", url="https://example.test/jobs/low"
+    )
+    pending_job = _add_company_job(
+        db_session, title="Pending Role", url="https://example.test/jobs/pending"
+    )
+    clearly = _add_match(
         db_session,
         user,
-        reject_job,
-        gate_verdict="reject",
-        gate_reason="requires 10y experience",
+        high_job,
+        qualification_label="clearly_qualified",
+        screen_reason="core skills match",
+        rerank_score=0.4,
+    )
+    unqualified = _add_match(
+        db_session,
+        user,
+        low_job,
+        qualification_label="unqualified",
+        screen_reason="requires 10y experience",
+        rerank_score=0.95,
+    )
+    unscreened = _add_match(
+        db_session, user, pending_job, qualification_label=None, rerank_score=0.99
     )
 
-    matched = api_client.get(
-        "/api/matches", params={"user_id": str(user.id), "view": "matched"}
-    )
-    assert matched.status_code == 200
-    matched_ids = {row["id"] for row in matched.json()["matches"]}
-    assert str(passed.id) in matched_ids
-    assert str(rejected.id) not in matched_ids
-
-    screened = api_client.get(
-        "/api/matches", params={"user_id": str(user.id), "view": "screened_out"}
-    )
-    assert screened.status_code == 200
-    screened_ids = {row["id"] for row in screened.json()["matches"]}
-    assert str(rejected.id) in screened_ids
-    assert screened.json()["matches"][0]["gate_reason"] == "requires 10y experience"
+    response = api_client.get("/api/matches", params={"user_id": str(user.id)})
+    assert response.status_code == 200
+    rows = response.json()["matches"]
+    assert [row["id"] for row in rows] == [
+        str(clearly.id),
+        str(unqualified.id),
+        str(unscreened.id),
+    ]
+    assert rows[1]["screen_reason"] == "requires 10y experience"
+    assert rows[1]["qualification_label"] == "unqualified"
+    assert rows[2]["qualification_label"] is None
 
 
 @requires_db
@@ -224,44 +237,52 @@ def test_list_matches_returns_only_latest_match_per_job(
     old_cycle = datetime(2026, 8, 18, 5, 1, tzinfo=UTC)
     new_cycle = datetime(2026, 8, 18, 5, 18, tzinfo=UTC)
 
-    _add_match(db_session, user, job, gate_verdict="pass", cycle_at=old_cycle)
-    newest = _add_match(db_session, user, job, gate_verdict="pass", cycle_at=new_cycle)
-    # Verdict flipped reject -> pass across cycles: only the latest counts.
+    _add_match(
+        db_session,
+        user,
+        job,
+        qualification_label="potentially_qualified",
+        cycle_at=old_cycle,
+    )
+    newest = _add_match(
+        db_session,
+        user,
+        job,
+        qualification_label="clearly_qualified",
+        cycle_at=new_cycle,
+    )
+    # Label flipped across cycles: only the latest row is returned.
     _add_match(
         db_session,
         user,
         flipped_job,
-        gate_verdict="reject",
-        gate_reason="stale verdict",
+        qualification_label="unqualified",
+        screen_reason="stale verdict",
         cycle_at=old_cycle,
     )
     flipped_newest = _add_match(
-        db_session, user, flipped_job, gate_verdict="pass", cycle_at=new_cycle
+        db_session,
+        user,
+        flipped_job,
+        qualification_label="potentially_qualified",
+        cycle_at=new_cycle,
     )
 
-    matched = api_client.get(
-        "/api/matches", params={"user_id": str(user.id), "view": "matched"}
-    )
-    assert matched.status_code == 200
-    by_job = {row["job_id"]: row["id"] for row in matched.json()["matches"]}
+    response = api_client.get("/api/matches", params={"user_id": str(user.id)})
+    assert response.status_code == 200
+    by_job = {row["job_id"]: row["id"] for row in response.json()["matches"]}
     assert by_job[str(job.id)] == str(newest.id)
     assert by_job[str(flipped_job.id)] == str(flipped_newest.id)
-    assert len(matched.json()["matches"]) == len(by_job)
-
-    screened = api_client.get(
-        "/api/matches", params={"user_id": str(user.id), "view": "screened_out"}
-    )
-    assert screened.status_code == 200
-    assert str(flipped_job.id) not in {
-        row["job_id"] for row in screened.json()["matches"]
-    }
+    assert len(response.json()["matches"]) == len(by_job)
+    labels = {row["job_id"]: row["qualification_label"] for row in response.json()["matches"]}
+    assert labels[str(flipped_job.id)] == "potentially_qualified"
 
 
 @requires_db
 def test_matches_include_ui_state(api_client: TestClient, db_session: Session) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
     record_pipeline_event(
         db_session,
         stage="ui",
@@ -290,7 +311,7 @@ def test_matches_include_ui_state(api_client: TestClient, db_session: Session) -
 def test_get_generation(api_client: TestClient, db_session: Session) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session, url="https://boards.example/j/99")
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
     generation = Generation(
         match_id=match.id,
         resume_doc="# Resume\n",
@@ -320,7 +341,13 @@ def test_get_generation(api_client: TestClient, db_session: Session) -> None:
 def test_admin_metrics(api_client: TestClient, db_session: Session) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
-    _add_match(db_session, user, job, gate_verdict="reject", gate_reason="too junior")
+    _add_match(
+        db_session,
+        user,
+        job,
+        qualification_label="unqualified",
+        screen_reason="too junior",
+    )
     record_pipeline_event(
         db_session,
         stage="extract-job",
@@ -344,7 +371,8 @@ def test_admin_metrics(api_client: TestClient, db_session: Session) -> None:
     assert "funnel" in body
     assert body["llm_spend_usd"] >= 0.0025
     assert "extraction_coverage" in body
-    assert "gate_rejection_rate" in body
+    assert "label_distribution" in body
+    assert body["label_distribution"]["unqualified"] >= 1
     assert body["funnel"]["applied"] >= 1
 
 
@@ -360,7 +388,7 @@ def test_skill_labels_resolve_from_taxonomy(
             Skill(id="esco:terraform", canonical_label="Terraform", alt_labels=[]),
         ]
     )
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
     db_session.flush()
 
     response = api_client.get("/api/matches", params={"user_id": str(user.id)})
@@ -381,7 +409,7 @@ def test_skill_labels_fall_back_to_id_when_unknown(
 ) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
 
     response = api_client.get("/api/matches", params={"user_id": str(user.id)})
     assert response.status_code == 200
@@ -393,7 +421,7 @@ def test_skill_labels_fall_back_to_id_when_unknown(
 def test_viewed_event_dedupes(api_client: TestClient, db_session: Session) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
 
     first = api_client.post(
         f"/api/matches/{match.id}/events",
@@ -422,7 +450,7 @@ def test_viewed_event_dedupes(api_client: TestClient, db_session: Session) -> No
 def test_skipped_and_outcome_events(api_client: TestClient, db_session: Session) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
-    match = _add_match(db_session, user, job, gate_verdict="reject")
+    match = _add_match(db_session, user, job, qualification_label="unqualified")
 
     skipped = api_client.post(
         f"/api/matches/{match.id}/events",
@@ -453,7 +481,7 @@ def test_skipped_and_outcome_events(api_client: TestClient, db_session: Session)
 def test_generate_enqueues_once(api_client: TestClient, db_session: Session) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
     queue = api_client.app.state.queue
 
     first = api_client.post(f"/api/matches/{match.id}/generate")
@@ -477,6 +505,21 @@ def test_generate_enqueues_once(api_client: TestClient, db_session: Session) -> 
 
 
 @requires_db
+def test_generate_quota_exhausted(api_client: TestClient, db_session: Session) -> None:
+    user = _seed_user(db_session)
+    user.quota_remaining = 0
+    db_session.flush()
+    job = _add_company_job(db_session)
+    match = _add_match(db_session, user, job, qualification_label="unqualified")
+    queue = api_client.app.state.queue
+
+    response = api_client.post(f"/api/matches/{match.id}/generate")
+    assert response.status_code == 200
+    assert response.json()["action"] == "quota_exhausted"
+    assert queue.tasks == []
+
+
+@requires_db
 def test_match_event_wrong_user_is_not_found(
     api_client: TestClient, db_session: Session
 ) -> None:
@@ -485,7 +528,7 @@ def test_match_event_wrong_user_is_not_found(
     db_session.add(other)
     db_session.flush()
     job = _add_company_job(db_session)
-    match = _add_match(db_session, owner, job, gate_verdict="pass")
+    match = _add_match(db_session, owner, job, qualification_label="potentially_qualified")
 
     response = api_client.post(
         f"/api/matches/{match.id}/events",
@@ -517,7 +560,7 @@ def test_generate_endpoint_returns_enqueued(
         )
     )
     job = _add_company_job(db_session)
-    match = _add_match(db_session, user, job, gate_verdict="pass")
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
 
     client = TestClient(application)
     response = client.post(f"/api/matches/{match.id}/generate")
