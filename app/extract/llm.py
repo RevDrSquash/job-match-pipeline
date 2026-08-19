@@ -62,7 +62,8 @@ does not support.
 currency, or omit if not stated. Convert hourly/monthly to annual when the \
 posting makes that possible; otherwise omit.
 - skill_spans: short surface forms of skills as they appear (or a close \
-normalization). Include tools, languages, platforms, and named practices. \
+normalization). Each item is one skill — never a comma- or slash-separated \
+list. Include tools, languages, platforms, and named practices. \
 Do not include generic soft-skill prose.
 - parseable: false only if this is not a usable job description (empty, \
 boilerplate-only, or not a job posting). When parseable is false, leave \

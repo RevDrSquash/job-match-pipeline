@@ -21,6 +21,11 @@ services:
     build: .
     ports:
       - "8080:8080"
+    # Host .env supplies LLM/embedding keys and EMBEDDING_PROVIDER. The
+    # environment: block wins for in-network URLs so localhost DB/queue
+    # values from .env cannot leak into the container.
+    env_file:
+      - .env
     environment:
       QUEUE_IMPL: local
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/jobmatch
@@ -28,6 +33,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        API_BASE_URL: http://app:8080
+    ports:
+      # Host 3100: Windows (Hyper-V/WSL) often reserves an excluded port range
+      # covering 3000, which fails binds with EACCES. Container side stays 3000.
+      - "3100:3000"
+    environment:
+      API_BASE_URL: http://app:8080
+    depends_on:
+      - app
 
 volumes:
   pgdata:

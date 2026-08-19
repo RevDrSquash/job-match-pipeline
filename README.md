@@ -8,12 +8,13 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, and `jobmatch evals run` for the four non-negotiable evals. No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app + web UI), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, `jobmatch evals run` for the four non-negotiable evals, and a local single-user Next.js UI (see [Local UI](#local-ui)). No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
 - Python 3.12+
 - Docker + Docker Compose
+- Node.js 20+ (only for running the UI dev server outside Docker)
 
 ## Quick start (Docker)
 
@@ -32,6 +33,7 @@ jobmatch match run --mode incremental
 ```
 
 - App: http://localhost:8080/health
+- UI: http://localhost:3100 (the `web` compose service; see [Local UI](#local-ui))
 - Handlers: `POST http://localhost:8080/handlers/{name}`
 - Postgres: `localhost:5432` (db `jobmatch`, user/password `postgres`)
 
@@ -106,7 +108,7 @@ curl -s -X POST http://localhost:8080/handlers/fetch-link-list \
 
 ## Profile CLI (PoC)
 
-No UI yet — ingest the test resume from the command line. This writes `users`, `user_profiles` (structured `work_history` with `source: parsed` and stable span IDs, linked `skill_ids`, synthesized JD-shaped doc, 768-dim embedding), and default `user_filters`.
+Resume ingestion has no UI (upload stays CLI-only this milestone) — ingest the test resume from the command line. This writes `users`, `user_profiles` (structured `work_history` with `source: parsed` and stable span IDs, linked `skill_ids`, synthesized JD-shaped doc, 768-dim embedding), and default `user_filters`.
 
 ```bash
 # Offline: --fallback-parser needs no API key, and EMBEDDING_PROVIDER=hashing
@@ -126,6 +128,34 @@ jobmatch match run --mode dirty
 ```
 
 Incremental matches jobs ingested or extracted since the last completed cycle against all profiles that have a `user_filters` row. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
+
+## Local UI
+
+Single-user Next.js app in [`frontend/`](frontend/) — match feed, screened-out view, profile editor, generation handoff, and an admin dashboard at `/admin`. It talks to the user-facing `/api/*` router on the FastAPI app (distinct from the internal `/handlers/*` workers); Next.js rewrites proxy `/api/*` to `API_BASE_URL` (default `http://localhost:8080`), so there is no CORS setup. Design: [`docs/UI.md`](docs/UI.md), "Local UI milestone".
+
+**Via Docker:** `docker compose up --build` includes the `web` service — open http://localhost:3100.
+
+**Dev server against a locally running FastAPI app** (see [Local development](#local-development-without-docker-for-the-app)):
+
+```bash
+cd frontend
+npm install
+npm run dev    # http://localhost:3100, proxies /api/* to http://localhost:8080
+```
+
+Set `API_BASE_URL` if the FastAPI app is somewhere other than `localhost:8080`.
+
+The UI serves on **3100** rather than Next.js's default 3000 because Windows (Hyper-V/WSL dynamic port reservation) often places an excluded port range over 3000, making binds fail with `EACCES`. Override with `npm run dev -- -p <port>` if 3100 is taken.
+
+There is no auth: the UI auto-selects the user when exactly one profile exists and offers a picker otherwise. Ingest a profile first (see [Profile CLI](#profile-cli-poc)) — with no users the UI has nothing to show, and an empty match feed usually means no match cycle has run yet (`jobmatch match run --mode incremental`).
+
+Frontend checks:
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+```
 
 ## Eval harness
 

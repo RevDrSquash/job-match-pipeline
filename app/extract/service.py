@@ -25,7 +25,7 @@ from app.extract.llm import (
 from app.extract.synthesize import build_synthesized_doc
 from app.ingest.events import record_pipeline_event, usage_details
 from app.skills.factory import linker_from_session
-from app.skills.linker import InMemorySkillLinker, SkillLinker
+from app.skills.linker import InMemorySkillLinker, SkillLinker, SpanLinkReport
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,9 @@ def extract_job(
         )
 
     active_linker = linker or _linker_from_session(session, settings)
-    skill_ids = active_linker.link_spans(list(extraction.skill_spans))
+    skill_spans = list(extraction.skill_spans)
+    link_report = _link_span_report(active_linker, skill_spans)
+    skill_ids = link_report.skill_ids
     skill_labels = _skill_labels(session, active_linker, skill_ids)
 
     # Prefer extracted comp when present; otherwise keep ATS metadata in the chunk.
@@ -246,6 +248,9 @@ def extract_job(
             latency_ms=(time.perf_counter() - started) * 1000,
             embed_tokens=embedding.token_count,
             embed_cost_usd=embedding.cost_usd,
+            skill_spans=skill_spans,
+            linked_skill_ids=skill_ids,
+            unlinked_spans=link_report.unlinked_spans,
         ),
     )
     session.flush()
@@ -278,6 +283,13 @@ def _build_embedder(settings: Settings | None) -> DocumentEmbedder:
 
 def _skills_table_populated(session: Session) -> bool:
     return session.scalar(select(Skill.id).limit(1)) is not None
+
+
+def _link_span_report(linker: SkillLinker, spans: list[str]) -> SpanLinkReport:
+    report_fn = getattr(linker, "link_span_report", None)
+    if callable(report_fn):
+        return report_fn(spans)
+    return SpanLinkReport(skill_ids=linker.link_spans(spans), unlinked_spans=[])
 
 
 def _linker_from_session(

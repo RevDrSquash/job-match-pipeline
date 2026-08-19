@@ -81,6 +81,17 @@ def test_skill_buckets_matched_adjacent_missing() -> None:
     assert missing == ["esco:rust"]
 
 
+def test_skill_buckets_sql_adjacent_to_postgresql() -> None:
+    matched, adjacent, missing = skill_buckets(
+        ["esco:sql"],
+        ["esco:postgresql"],
+        labels_for={"esco:sql": "SQL", "esco:postgresql": "PostgreSQL"},
+    )
+    assert matched == []
+    assert adjacent == ["esco:sql"]
+    assert missing == []
+
+
 def test_jaccard_overlap() -> None:
     assert jaccard_overlap(["a", "b"], ["b", "c"]) == 1 / 3
     assert jaccard_overlap([], []) == 0.0

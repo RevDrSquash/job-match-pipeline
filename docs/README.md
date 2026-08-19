@@ -1,6 +1,6 @@
 # Design docs
 
-**These docs are the source of truth for all design decisions.** If an implementation diverges from a doc, update the doc in the same change.
+**These docs are the source of truth for all design decisions** — they record the owner's decisions and the reasoning behind them, and they outrank the code, not the owner. If an implementation diverges from a doc, update the doc in the same change. If the owner directs a change that contradicts a doc, that is a design change: update the doc and the code together (see `AGENTS.md`, "Read the docs first").
 
 | Document | Contents |
 | -- | -- |
@@ -11,6 +11,6 @@
 | [EVALUATION.md](EVALUATION.md) | Per-stage eval strategy; the four non-negotiable evals; label bootstrapping |
 | [PRIVACY_AND_COMPLIANCE.md](PRIVACY_AND_COMPLIANCE.md) | PIPEDA / BC PIPA analysis, model selection and data residency, deletion design |
 | [POSTING_SOURCES.md](POSTING_SOURCES.md) | OpenPostings reference, license blocker, volume reconciliation, company registry plan |
-| [UI.md](UI.md) | Surfaces, free-tier public search, feedback capture, admin dashboard, hosting |
+| [UI.md](UI.md) | Surfaces, free-tier public search, feedback capture, admin dashboard, hosting, local UI milestone (Next.js + `/api/*` layer) |
 | [OPEN_ISSUES.md](OPEN_ISSUES.md) | Inconsistencies and deferred decisions found during doc review — not blocking the local proof of concept |
 | [POC_RESULTS.md](POC_RESULTS.md) | Local proof-of-concept measurement report (DEF-25) |

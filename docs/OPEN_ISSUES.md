@@ -158,8 +158,21 @@ Two invariants make the future layer possible; keep them:
 * Docker / Kubernetes / Terraform and similar tools have **no ESCO concept at
   all** (checked against the 2026 skills pillar); they stay unlinked until a
   taxonomy supplement is designed. That is documented behavior, not a linking
-  regression.
+  regression. See §12 for the recall-ceiling this creates on `matched_skills`.
 
 ## 10. User deletion / anonymization path is unimplemented
 
 `docs/PRIVACY_AND_COMPLIANCE.md` ("Deletion — design for it now") requires a cascade that strips or deletes user-side rows, including `pipeline_events` linkage. The schema is ready — `pipeline_events.user_id` is nullable with no FK (DEF-16, §4) so anonymization can null the column without deleting the training row — but there is no delete or anonymize path in the app. Fine for the local PoC (no real user data). A working path is required before any real resume is stored.
+
+## 11. Deferred from the local UI milestone
+
+The local UI cut (`docs/UI.md`, "Local UI milestone") ships the match feed, screened-out view, profile editor, generation handoff, and admin dashboard, but defers two designed features that need decisions before v1:
+
+* **PDF / docx resume export.** The handoff screen offers markdown download and a paste-ready context block only. Real export needs the templating decision already listed in UI.md's open questions (do users choose a template, or do we impose one?) plus a rendering dependency; don't pick a library before picking a templating answer.
+* **Email digest one-click outcome links.** The digest's one-click buttons ("got interview" / "rejected" on applied jobs) are the highest-yield placement for the most valuable label, but they require an authenticated-by-token link design — a signed, expiring, single-purpose token that can write one `outcome` event without a session. That token scheme (scope, expiry, revocation on account deletion) is undesigned; the local milestone has no auth at all, so nothing here constrains it yet. Design it together with the auth/session work, not before.
+
+## 12. ESCO coverage gaps cap `matched_skills` recall
+
+Official ESCO has no concept for much of the modern software stack (Docker, Kubernetes, AWS, GCP, React, GraphQL, Rust, Terraform — see `data/esco/README.md`). Those spans drop on both job and profile sides, so Jaccard overlap (30% of the local rerank score) and `matched_skills` have a recall ceiling even after compound-span splitting. A curated taxonomy supplement (local IDs that do not collide with ESCO URIs) is the future option; do not invent speculative links.
+
+`docker-compose.yml` loads the host `.env` via `env_file` so in-container handlers inherit `EMBEDDING_PROVIDER` / `LLM_API_KEY`. Compose `environment:` still overrides `DATABASE_URL` / `QUEUE_IMPL` / `LOCAL_QUEUE_BASE_URL`. Without that `env_file`, the container defaulted to `EMBEDDING_PROVIDER=hashing`, distrusted the stored `gemini-embedding-001` taxonomy vectors, and zeroed the similarity fallback — which produced tiny disjoint skill sets on the first local run.
