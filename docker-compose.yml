@@ -6,7 +6,9 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: jobmatch
     ports:
-      - "5432:5432"
+      # Host 5433: a native Windows PostgreSQL service occupies 5432 and
+      # shadows the container on localhost. Matches DATABASE_URL in .env.
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d jobmatch"]
       interval: 5s
@@ -33,6 +35,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      # Debug session 0e9f44: lets in-container instrumentation write the
+      # NDJSON debug log into the workspace. Remove after debugging.
+      - ./:/workspace-debug
 
   web:
     build:

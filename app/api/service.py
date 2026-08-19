@@ -66,11 +66,24 @@ def list_matches(
     else:
         verdict_filter = Match.gate_verdict == "reject"
 
+    # A dirty rematch (after a profile edit) inserts a fresh match row per job
+    # and retains the superseded ones (generations/events hang off them). Only
+    # the newest row per job reflects the current profile, so the view dedups
+    # to it before applying the verdict filter — each job appears in exactly
+    # one view, per its latest verdict.
+    latest_per_job = (
+        select(Match.id)
+        .where(Match.user_id == user_id)
+        .distinct(Match.job_id)
+        .order_by(Match.job_id, Match.cycle_at.desc(), Match.id.desc())
+        .subquery()
+    )
+
     rows = session.execute(
         select(Match, Job, Company.name)
         .join(Job, Job.id == Match.job_id)
         .outerjoin(Company, Company.id == Job.company_id)
-        .where(Match.user_id == user_id)
+        .where(Match.id.in_(select(latest_per_job.c.id)))
         .where(verdict_filter)
         .order_by(Match.rerank_score.desc().nulls_last(), Match.cycle_at.desc())
     ).all()
@@ -80,6 +93,53 @@ def list_matches(
     generation_by_match = _latest_generation_by_match(
         session, match_ids=[match.id for match, _job, _company in rows]
     )
+
+    # #region agent log
+    import json as _json
+    import os as _os
+    import time as _time
+
+    _lp = (
+        "/workspace-debug/debug-0e9f44.log"
+        if _os.path.isdir("/workspace-debug")
+        else "debug-0e9f44.log"
+    )
+    with open(_lp, "a") as _f:
+        _f.write(
+            _json.dumps(
+                {
+                    "sessionId": "0e9f44",
+                    "runId": "post-fix",
+                    "hypothesisId": "H1,H2",
+                    "location": "app/api/service.py:list_matches",
+                    "message": "matches view after per-job dedup",
+                    "data": {
+                        "view": view,
+                        "total_match_rows_for_user": int(
+                            session.scalar(
+                                select(func.count(Match.id)).where(
+                                    Match.user_id == user_id
+                                )
+                            )
+                            or 0
+                        ),
+                        "returned": [
+                            {
+                                "match_id": str(m.id),
+                                "job_id": str(m.job_id),
+                                "cycle_at": m.cycle_at.isoformat(),
+                                "verdict": m.gate_verdict,
+                                "has_generation": m.id in generation_by_match,
+                            }
+                            for m, _j, _c in rows
+                        ],
+                    },
+                    "timestamp": int(_time.time() * 1000),
+                }
+            )
+            + "\n"
+        )
+    # #endregion
 
     skill_ids: set[str] = set()
     for match, _job, _company in rows:
