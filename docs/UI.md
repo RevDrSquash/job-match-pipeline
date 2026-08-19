@@ -251,7 +251,7 @@ Read endpoints (thin queries over existing models):
 | -- | -- |
 | `GET /api/users` | id, tier, quota |
 | `GET /api/profile?user_id=` | profile + filters + resolved `skills` labels (same base shape as `jobmatch profile show`) |
-| `GET /api/matches?user_id=&view=matched\|screened_out` | match cards with job metadata, skill buckets as `{id, label}`, gate fields, latest UI state |
+| `GET /api/matches?user_id=&view=matched\|screened_out` | match cards with job metadata, skill buckets as `{id, label}`, gate fields, latest UI state. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones), so each job lands in exactly one view per its latest gate verdict |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
 | `GET /api/admin/metrics` | funnel counts, extraction coverage %, gate rejection rate, LLM spend |
 

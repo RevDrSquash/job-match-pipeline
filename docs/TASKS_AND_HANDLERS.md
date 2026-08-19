@@ -149,6 +149,7 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 * Top-N per user (`MATCH_TOP_N`, default 100) is also clipped by the remaining daily candidate cap (`DAILY_CANDIDATE_CAP`, default 500).
 * Dirty mode selects `user_profiles.rematch_needed` up to `DIRTY_PROFILE_CAP` (default 25), processes the full corpus for those users, then clears the flag.
 * Each survivor writes a `matches` row and enqueues `screen-job` with `{user_id, job_id, match_id}`. Cycle-level and per-pair `pipeline_events` are always written. Profile/resume text is never logged.
+* Match rows accumulate: a later cycle (notably a dirty rematch) writes a fresh row per `(user, job)` and does **not** delete or invalidate earlier ones — generations and events hang off them. Superseded rows are hidden at read time: the user-facing `GET /api/matches` returns only the latest match row per job (see `docs/UI.md`, API layer).
 * Meaningful vector recall needs `EMBEDDING_PROVIDER=gemini` (same provider as profile ingest). The hashing default is plumbing-only (`docs/OPEN_ISSUES.md` §6).
 
 ---

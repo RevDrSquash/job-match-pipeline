@@ -176,3 +176,17 @@ The local UI cut (`docs/UI.md`, "Local UI milestone") ships the match feed, scre
 Official ESCO has no concept for much of the modern software stack (Docker, Kubernetes, AWS, GCP, React, GraphQL, Rust, Terraform — see `data/esco/README.md`). Those spans drop on both job and profile sides, so Jaccard overlap (30% of the local rerank score) and `matched_skills` have a recall ceiling even after compound-span splitting. A curated taxonomy supplement (local IDs that do not collide with ESCO URIs) is the future option; do not invent speculative links.
 
 `docker-compose.yml` loads the host `.env` via `env_file` so in-container handlers inherit `EMBEDDING_PROVIDER` / `LLM_API_KEY`. Compose `environment:` still overrides `DATABASE_URL` / `QUEUE_IMPL` / `LOCAL_QUEUE_BASE_URL`. Without that `env_file`, the container defaulted to `EMBEDDING_PROVIDER=hashing`, distrusted the stored `gemini-embedding-001` taxonomy vectors, and zeroed the similarity fallback — which produced tiny disjoint skill sets on the first local run.
+
+## 13. `matches` table should be renamed (`match_results`)
+
+The `matches` table stores per-cycle **evaluation snapshots** — `(user, job)` plus `cycle_at`, rerank score, gate verdict, and skill buckets computed against the profile as it existed at that moment. Rows accumulate: a dirty rematch after a profile edit inserts a fresh row per job and retains superseded ones, and "the current match" is a derived concept (latest row per job — the read-side rule in `docs/UI.md`, API layer). The name `matches` misreads as a unique user↔job relationship and has already caused confusion (a 2026-08-19 debug session traced duplicate match-feed cards to exactly this misunderstanding).
+
+**Decision (owner, 2026-08-19):** rename to `match_results`. ("`match_evaluations`" was rejected — "evaluations" already means the eval suite in this repo.) Purely mechanical (Alembic rename + model/query/docs sweep), but it touches most of the pipeline, so do it as its own change, ideally after DEF-35 to avoid churning the same files twice.
+
+## 14. Generations must decouple from match rows (DEF-35, planned)
+
+**Decision (owner, 2026-08-19):** a generated resume is a first-class entity owned by `(user, job)`, not a child of one match evaluation. Today `generations.match_id` is `NOT NULL ON DELETE CASCADE`, so deleting a superseded match row would destroy paid-for LLM output. Rationale: resumes are expensive and must outlive stale/deleted match results; they attach to the job they target; and they may later be reused or user-edited.
+
+Also decided: the match result stops being a hard generation input. Skill buckets are cheap (`app/match/skills.py`, pure local set logic, no LLM), so **generate-resume uses the provided match's buckets when available and recomputes them itself when not** — the `missing_skills` bucket must always be present either way (it is the anti-fabrication input, hard rule 1).
+
+Implementation plan lives in Linear **DEF-35**: `generations` gains `user_id` (FK users, CASCADE — preserves the §10 deletion path) and `job_id` (FK jobs, SET NULL); `match_id` becomes nullable SET-NULL provenance. One open point is flagged in the issue for owner confirmation: keying "skip if a generation already exists" on `(user, job)` instead of match id, which stops rematch cycles from auto-re-spending quota on already-generated jobs.

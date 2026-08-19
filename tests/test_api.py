@@ -98,11 +98,12 @@ def _add_match(
     *,
     gate_verdict: str,
     gate_reason: str | None = None,
+    cycle_at: datetime | None = None,
 ) -> Match:
     match = Match(
         user_id=user.id,
         job_id=job.id,
-        cycle_at=datetime.now(tz=UTC),
+        cycle_at=cycle_at or datetime.now(tz=UTC),
         rerank_score=0.82,
         gate_verdict=gate_verdict,
         gate_reason=gate_reason,
@@ -204,6 +205,56 @@ def test_list_matches_matched_and_screened_out(
     screened_ids = {row["id"] for row in screened.json()["matches"]}
     assert str(rejected.id) in screened_ids
     assert screened.json()["matches"][0]["gate_reason"] == "requires 10y experience"
+
+
+@requires_db
+def test_list_matches_returns_only_latest_match_per_job(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """A rematch (e.g. after a profile edit) supersedes earlier match rows.
+
+    Regression: the matched view used to return every pass row, so the same
+    job appeared once per match cycle.
+    """
+    user = _seed_user(db_session)
+    job = _add_company_job(db_session, title="Rematched Role")
+    flipped_job = _add_company_job(
+        db_session, title="Flipped Role", url="https://example.test/jobs/2"
+    )
+    old_cycle = datetime(2026, 8, 18, 5, 1, tzinfo=UTC)
+    new_cycle = datetime(2026, 8, 18, 5, 18, tzinfo=UTC)
+
+    _add_match(db_session, user, job, gate_verdict="pass", cycle_at=old_cycle)
+    newest = _add_match(db_session, user, job, gate_verdict="pass", cycle_at=new_cycle)
+    # Verdict flipped reject -> pass across cycles: only the latest counts.
+    _add_match(
+        db_session,
+        user,
+        flipped_job,
+        gate_verdict="reject",
+        gate_reason="stale verdict",
+        cycle_at=old_cycle,
+    )
+    flipped_newest = _add_match(
+        db_session, user, flipped_job, gate_verdict="pass", cycle_at=new_cycle
+    )
+
+    matched = api_client.get(
+        "/api/matches", params={"user_id": str(user.id), "view": "matched"}
+    )
+    assert matched.status_code == 200
+    by_job = {row["job_id"]: row["id"] for row in matched.json()["matches"]}
+    assert by_job[str(job.id)] == str(newest.id)
+    assert by_job[str(flipped_job.id)] == str(flipped_newest.id)
+    assert len(matched.json()["matches"]) == len(by_job)
+
+    screened = api_client.get(
+        "/api/matches", params={"user_id": str(user.id), "view": "screened_out"}
+    )
+    assert screened.status_code == 200
+    assert str(flipped_job.id) not in {
+        row["job_id"] for row in screened.json()["matches"]
+    }
 
 
 @requires_db
