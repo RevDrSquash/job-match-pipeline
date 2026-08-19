@@ -82,6 +82,7 @@ Inject known fabrications into otherwise-clean generated resumes and measure det
   * **Over-promotion** — wasted auto-generation on a `clearly_qualified` miss (~$0.065)
   * **Under-ranking** — a good job sinks below the fold
 * Under-ranking is worse for the product and invisible to the user, so weight accordingly
+* Include logistics-only cases in the labeled set (right skills, wrong city / arrangement / comp): the label must reflect qualification fit only, so a label lowered for a logistics mismatch is a rubric violation, not an adjacent-tier judgment call (`TASKS_AND_HANDLERS.md`, screen-job)
 
 ### 8. Resume quality
 

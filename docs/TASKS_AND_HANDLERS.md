@@ -169,6 +169,8 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 
 The label is a ranking signal, not a verdict. `confidence` is logged, not persisted. Ranking in the match feed is label tier first (clearly_qualified highest; NULL / unscreened last), then `rerank_score` within a tier.
 
+**The label measures qualification fit only** — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes: the prompt instructs the model that they must not move the label or drive the reason. Location and comp preferences are the prefilter's job (`user_filters`); logistics mismatches that survive it belong in the planned qualification report, not the label (`docs/OPEN_ISSUES.md` §16).
+
 **Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap screen call saves the full generation cost when we choose not to auto-generate. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
 
 On `clearly_qualified` **and** remaining quota → enqueue `generate-resume`. Other labels stay on the ranked list for the user to triage. The user can also trigger generation from the UI (`POST /api/matches/{id}/generate`); that path consumes quota too.

@@ -40,6 +40,12 @@ condensed candidate profile, assign an ordinal qualification label. This is \
 a ranking signal, not a hard reject: missing listed skills is often a \
 reasonable situation in which to still apply.
 
+The label measures how qualified the candidate is for the work itself — \
+skills, experience, domain, and seniority. Logistics are separate axes: \
+location, relocation, work authorization, onsite/remote/hybrid arrangement, \
+timezone, compensation, and start date must not raise or lower the label \
+and must not be the basis of the reason.
+
 Return only JSON matching the schema:
 - label: one of the five values below
 - reason: one specific sentence a user can read on a match card. Do \
@@ -61,6 +67,8 @@ few missing listed skills. Applying is reasonable.
 only minor or no gaps. A tailored resume is clearly warranted.
 
 Rules:
+- Judge only qualification fit. A candidate in the wrong city with the \
+right skills is not unqualified; ignore logistics mismatches entirely.
 - Do not invent skills or experience the profile does not contain.
 - A single missing skill is not automatic grounds for unqualified.
 - Missing several listed skills can still be potentially_qualified when \
