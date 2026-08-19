@@ -6,6 +6,8 @@ Job Match Pipeline: ingest job postings from ATS providers, extract and canonica
 
 `docs/` is canonical for all design decisions — read the docs relevant to your task before writing code. `docs/README.md` is the index. The Linear issues reference specific sections; follow those references. If a design question isn't answered in `docs/`, check `docs/OPEN_ISSUES.md` before inventing an answer.
 
+**The docs record the owner's decisions; they do not override them.** The authority order is: owner's current direction → docs → code. When the owner directs a change that contradicts a doc, that is a design change, not an error — update the doc and the code together. Push back only on substance: if a doc records a reason for the old decision or a dependency the change would break, surface that trade-off in one line as input to the owner's call, then follow their direction.
+
 Current milestone: local proof of concept only. No GCP resources, no Terraform — everything runs against docker-compose with `QUEUE_IMPL=local`. The UI is a local single-user Next.js app (`frontend/`) talking to the user-facing `/api/*` router; see `docs/UI.md`, "Local UI milestone". No auth, no public endpoints.
 
 ## Hard rules (never violate)
@@ -32,5 +34,5 @@ Current milestone: local proof of concept only. No GCP resources, no Terraform �
 * Stack: Python, FastAPI, Postgres + pgvector via docker-compose, Alembic migrations, pytest, ruff.
 * Run `pytest` and `ruff check` before finishing any task. Schema changes always go through an Alembic migration, never manual DDL.
 * Prompts are code: any prompt change must re-run the eval suite once it exists (`docs/EVALUATION.md`, Operational discipline).
-* **If your implementation diverges from a design doc, update the doc in the same change** — the repo docs are canonical and must stay true. Deferred decisions and known inconsistencies go in `docs/OPEN_ISSUES.md`.
+* **If your implementation diverges from a design doc, update the doc in the same change** — the repo docs must stay true to the actual design, whether the divergence came from implementation reality or an owner decision. Deferred decisions and known inconsistencies go in `docs/OPEN_ISSUES.md`.
 * Secrets come from env vars (`.env`, gitignored). Never commit keys, and never hardcode model names deep in call sites — keep them in config.

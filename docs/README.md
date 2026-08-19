@@ -1,6 +1,6 @@
 # Design docs
 
-**These docs are the source of truth for all design decisions.** If an implementation diverges from a doc, update the doc in the same change.
+**These docs are the source of truth for all design decisions** — they record the owner's decisions and the reasoning behind them, and they outrank the code, not the owner. If an implementation diverges from a doc, update the doc in the same change. If the owner directs a change that contradicts a doc, that is a design change: update the doc and the code together (see `AGENTS.md`, "Read the docs first").
 
 | Document | Contents |
 | -- | -- |
