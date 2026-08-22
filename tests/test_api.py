@@ -74,6 +74,7 @@ def _add_company_job(
     company_name: str = "Acme Corp",
     location: str = "Remote",
     raw_jd: str | None = None,
+    raw_jd_html: str | None = None,
     extracted_at: datetime | None = None,
     seniority: str | None = None,
     hard_requirements: list[str] | None = None,
@@ -94,6 +95,7 @@ def _add_company_job(
         ingested_at=datetime.now(tz=UTC),
         company_id=company.id,
         raw_jd=raw_jd,
+        raw_jd_html=raw_jd_html,
         extracted_at=extracted_at,
         seniority=seniority,
         hard_requirements=hard_requirements,
@@ -667,6 +669,7 @@ def test_get_job_returns_description_and_extracted_fields(
         company_name="Umbrella",
         location="Seattle, WA",
         raw_jd="Build and operate the internal developer platform.",
+        raw_jd_html="<p>Build and operate the internal developer platform.</p>",
         extracted_at=extracted_at,
         seniority="mid",
         hard_requirements=["Python", "Kubernetes"],
@@ -682,6 +685,7 @@ def test_get_job_returns_description_and_extracted_fields(
     assert body["location"] == "Seattle, WA"
     assert body["url"] == "https://example.test/jobs/platform"
     assert body["raw_jd"] == "Build and operate the internal developer platform."
+    assert body["raw_jd_html"] == "<p>Build and operate the internal developer platform.</p>"
     assert body["seniority"] == "mid"
     assert body["hard_requirements"] == ["Python", "Kubernetes"]
     assert body["nice_to_haves"] == ["Terraform"]

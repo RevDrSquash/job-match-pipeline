@@ -126,6 +126,7 @@ export type JobSummary = {
 export type JobDetail = JobSummary & {
   url: string | null;
   raw_jd: string | null;
+  raw_jd_html: string | null;
   seniority: string | null;
   hard_requirements: string[];
   nice_to_haves: string[];

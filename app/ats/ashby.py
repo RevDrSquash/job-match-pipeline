@@ -79,6 +79,8 @@ class AshbyAdapter:
 
         raw = job.get("descriptionPlain") or job.get("descriptionHtml")
         raw_jd = html_to_text(raw if isinstance(raw, str) else None)
+        html_src = job.get("descriptionHtml")
+        raw_jd_html = html_src if isinstance(html_src, str) else None
         posted_at = _parse_ashby_ts(job.get("publishedAt"))
 
         return Posting(
@@ -91,6 +93,7 @@ class AshbyAdapter:
             comp_min=None,
             comp_max=None,
             raw_jd=raw_jd,
+            raw_jd_html=raw_jd_html,
             posted_at=posted_at,
             external_id=str(job["id"]) if job.get("id") is not None else None,
         )

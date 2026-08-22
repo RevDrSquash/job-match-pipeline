@@ -775,6 +775,76 @@
   line-height: 1.75;
 }
 
+.jobDescriptionHtml {
+  overflow-wrap: anywhere;
+  color: #27312c;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.jobDescriptionHtml h1,
+.jobDescriptionHtml h2,
+.jobDescriptionHtml h3,
+.jobDescriptionHtml h4,
+.jobDescriptionHtml h5,
+.jobDescriptionHtml h6 {
+  margin: 1.15em 0 0.4em;
+  color: #1b2420;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.jobDescriptionHtml h1 {
+  font-size: 1.45em;
+}
+
+.jobDescriptionHtml h2 {
+  font-size: 1.25em;
+}
+
+.jobDescriptionHtml h3,
+.jobDescriptionHtml h4 {
+  font-size: 1.1em;
+}
+
+.jobDescriptionHtml h5,
+.jobDescriptionHtml h6 {
+  font-size: 1em;
+}
+
+.jobDescriptionHtml p {
+  margin: 0 0 0.85em;
+}
+
+.jobDescriptionHtml ul,
+.jobDescriptionHtml ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.4em;
+}
+
+.jobDescriptionHtml li {
+  margin: 0.25em 0;
+}
+
+.jobDescriptionHtml a {
+  color: var(--green-dark);
+}
+
+.jobDescriptionHtml table {
+  width: 100%;
+  margin: 0 0 0.85em;
+  border-collapse: collapse;
+}
+
+.jobDescriptionHtml th,
+.jobDescriptionHtml td {
+  padding: 0.35em 0.5em;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
 .sideStack {
   display: grid;
   gap: 14px;

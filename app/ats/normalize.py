@@ -6,6 +6,8 @@ import html
 import re
 from html.parser import HTMLParser
 
+import nh3
+
 
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
@@ -69,3 +71,61 @@ def html_to_text(raw: str | None) -> str | None:
         lines.append(cleaned)
     normalized = _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
     return normalized or None
+
+
+# Display-only allowlist. Prompts and search still use html_to_text() / raw_jd.
+_JD_HTML_TAGS = frozenset(
+    {
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "p",
+        "ul",
+        "ol",
+        "li",
+        "strong",
+        "em",
+        "b",
+        "i",
+        "a",
+        "br",
+        "table",
+        "thead",
+        "tbody",
+        "tfoot",
+        "tr",
+        "th",
+        "td",
+    }
+)
+_JD_HTML_ATTRIBUTES = {
+    "a": {"href", "title"},
+    "th": {"colspan", "rowspan"},
+    "td": {"colspan", "rowspan"},
+}
+_HTML_TAG_RE = re.compile(r"<[a-zA-Z/!?]")
+
+
+def sanitize_jd_html(raw: str | None) -> str | None:
+    """Sanitize ATS HTML for UI display. Returns None for empty or plain-text input."""
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    # Greenhouse often returns entity-escaped HTML (&lt;div&gt;...); unescape first.
+    text = html.unescape(text)
+    if not _HTML_TAG_RE.search(text):
+        return None
+    cleaned = nh3.clean(
+        text,
+        tags=_JD_HTML_TAGS,
+        attributes=_JD_HTML_ATTRIBUTES,
+        link_rel="noopener noreferrer",
+    ).strip()
+    if not cleaned or not _HTML_TAG_RE.search(cleaned):
+        return None
+    return cleaned

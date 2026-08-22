@@ -57,9 +57,16 @@ export default function JobDetail({ job }: { job: JobDetailPayload }) {
 
       <div className={styles.handoffGrid}>
         <article className={styles.resumePaper}>
-          <div className={styles.resumeDocument}>
-            {job.raw_jd || "No job description was stored for this posting."}
-          </div>
+          {job.raw_jd_html ? (
+            <div
+              className={styles.jobDescriptionHtml}
+              dangerouslySetInnerHTML={{ __html: job.raw_jd_html }}
+            />
+          ) : (
+            <div className={styles.resumeDocument}>
+              {job.raw_jd || "No job description was stored for this posting."}
+            </div>
+          )}
         </article>
 
         <aside className={styles.sideStack}>

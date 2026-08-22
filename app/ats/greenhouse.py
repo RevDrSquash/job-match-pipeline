@@ -81,7 +81,9 @@ class GreenhouseAdapter:
         )
 
         posted_at = _parse_greenhouse_ts(job.get("first_published") or job.get("updated_at"))
-        raw_jd = html_to_text(job.get("content"))
+        content = job.get("content")
+        raw_jd = html_to_text(content)
+        raw_jd_html = content if isinstance(content, str) else None
 
         return Posting(
             url=str(absolute_url).strip(),
@@ -93,6 +95,7 @@ class GreenhouseAdapter:
             comp_min=comp_min,
             comp_max=comp_max,
             raw_jd=raw_jd,
+            raw_jd_html=raw_jd_html,
             posted_at=posted_at,
             external_id=str(job["id"]) if job.get("id") is not None else None,
         )

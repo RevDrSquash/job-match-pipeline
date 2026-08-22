@@ -28,6 +28,7 @@ class Posting:
     comp_min: int | None = None
     comp_max: int | None = None
     raw_jd: str | None = None
+    raw_jd_html: str | None = None
     posted_at: datetime | None = None
     external_id: str | None = None
 

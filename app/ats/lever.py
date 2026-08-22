@@ -5,6 +5,7 @@ Public endpoint: GET https://api.lever.co/v0/postings/{org}?mode=json
 
 from __future__ import annotations
 
+import html
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -107,9 +108,31 @@ class LeverAdapter:
             comp_min=comp_min,
             comp_max=comp_max,
             raw_jd=raw_jd,
+            raw_jd_html=_lever_raw_jd_html(job),
             posted_at=posted_at,
             external_id=str(job["id"]) if job.get("id") is not None else None,
         )
+
+
+def _lever_raw_jd_html(job: dict[str, Any]) -> str | None:
+    """Capture Lever HTML: description else descriptionBody, plus lists content."""
+    parts: list[str] = []
+    primary = job.get("description") or job.get("descriptionBody")
+    if isinstance(primary, str) and primary.strip():
+        parts.append(primary)
+    lists = job.get("lists")
+    if isinstance(lists, list):
+        for section in lists:
+            if not isinstance(section, dict):
+                continue
+            heading = section.get("text")
+            content = section.get("content")
+            if heading:
+                parts.append(f"<h3>{html.escape(str(heading).strip())}</h3>")
+            if content:
+                parts.append(f"<ul>{content}</ul>")
+    joined = "\n".join(parts).strip()
+    return joined or None
 
 
 def _parse_lever_ts(value: Any) -> datetime | None:

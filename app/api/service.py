@@ -144,6 +144,7 @@ def get_job(session: Session, job_id: uuid.UUID) -> dict[str, Any]:
         {
             "url": job.url,
             "raw_jd": job.raw_jd,
+            "raw_jd_html": job.raw_jd_html,
             "seniority": job.seniority,
             "hard_requirements": list(job.hard_requirements or []),
             "nice_to_haves": list(job.nice_to_haves or []),
