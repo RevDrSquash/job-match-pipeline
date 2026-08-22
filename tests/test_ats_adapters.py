@@ -55,6 +55,20 @@ def test_ashby_parses_fixture() -> None:
     assert "<p" in first.raw_jd_html
 
 
+def test_greenhouse_parses_hosted_and_api_job_urls() -> None:
+    adapter = GreenhouseAdapter()
+    assert adapter._parse_board_job_url(
+        "https://boards-api.greenhouse.io/v1/boards/airtable/jobs/8403127002"
+    ) == ("airtable", "8403127002")
+    assert adapter._parse_board_job_url(
+        "https://job-boards.greenhouse.io/airtable/jobs/8403127002"
+    ) == ("airtable", "8403127002")
+    assert adapter._parse_board_job_url(
+        "https://boards.greenhouse.io/figma/jobs/6144873004?gh_jid=6144873004"
+    ) == ("figma", "6144873004")
+    assert adapter._parse_board_job_url("https://example.test/jobs/1") is None
+
+
 def test_html_to_text_strips_tags_and_boilerplate() -> None:
     html = """
     <html><body>

@@ -133,14 +133,23 @@ class GreenhouseAdapter:
         return employment_type, work_arrangement, comp_min, comp_max
 
     def _parse_board_job_url(self, url: str) -> tuple[str, str] | None:
-        # https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{id}
+        # JSON API: https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{id}
         marker = "/v1/boards/"
-        if marker not in url:
+        if marker in url:
+            rest = url.split(marker, 1)[1]
+            parts = rest.strip("/").split("/")
+            if len(parts) >= 3 and parts[1] == "jobs":
+                return parts[0], parts[2].split("?")[0]
             return None
-        rest = url.split(marker, 1)[1]
-        parts = rest.strip("/").split("/")
-        if len(parts) >= 3 and parts[1] == "jobs":
-            return parts[0], parts[2].split("?")[0]
+        # Hosted boards: https://job-boards.greenhouse.io/{token}/jobs/{id}
+        # or https://boards.greenhouse.io/{token}/jobs/{id}
+        for host in ("job-boards.greenhouse.io/", "boards.greenhouse.io/"):
+            if host not in url:
+                continue
+            rest = url.split(host, 1)[1]
+            parts = rest.strip("/").split("/")
+            if len(parts) >= 3 and parts[1] == "jobs":
+                return parts[0], parts[2].split("?")[0]
         return None
 
 

@@ -52,7 +52,7 @@ python -m app.seed --target 500
 # or: job-match-seed --target 500
 ```
 
-The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. No LLM calls on this path.
+The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. After adding `jobs.raw_jd_html`, backfill display HTML for existing rows with `python -m app.seed --backfill-html` (one list request per known board; no new jobs). Postings that have left the board stay on the plain-text fallback. No LLM calls on this path.
 
 Extract a seeded job (lazy; cached on `extracted_at`). **Load the ESCO taxonomy first** (see [Skill taxonomy](#skill-taxonomy-esco)) — `extract-job` refuses to run against an empty `skills` table (retryable 503, checked before any LLM spend):
 
