@@ -954,6 +954,41 @@
   font-size: 11px;
 }
 
+.searchForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.searchForm input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+  color: var(--ink);
+  background: white;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+
+.searchForm input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(23, 107, 77, 0.11);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 850px) {
   .pageHeader,
   .handoffHeader {
@@ -987,6 +1022,10 @@
   }
 
   .metricsHero {
+    grid-template-columns: 1fr;
+  }
+
+  .searchForm {
     grid-template-columns: 1fr;
   }
 }

@@ -71,20 +71,33 @@ def _add_company_job(
     *,
     title: str = "Backend Engineer",
     url: str = "https://example.test/jobs/1",
+    company_name: str = "Acme Corp",
+    location: str = "Remote",
+    raw_jd: str | None = None,
+    extracted_at: datetime | None = None,
+    seniority: str | None = None,
+    hard_requirements: list[str] | None = None,
+    nice_to_haves: list[str] | None = None,
+    posted_at: datetime | None = None,
 ) -> Job:
-    company = Company(name="Acme Corp", ats_provider="greenhouse")
+    company = Company(name=company_name, ats_provider="greenhouse")
     db_session.add(company)
     db_session.flush()
     job = Job(
         url_hash=f"api-{uuid.uuid4()}",
         url=url,
         title=title,
-        location="Remote",
+        location=location,
         comp_min=120_000,
         comp_max=160_000,
-        posted_at=datetime.now(tz=UTC),
+        posted_at=posted_at or datetime.now(tz=UTC),
         ingested_at=datetime.now(tz=UTC),
         company_id=company.id,
+        raw_jd=raw_jd,
+        extracted_at=extracted_at,
+        seniority=seniority,
+        hard_requirements=hard_requirements,
+        nice_to_haves=nice_to_haves,
     )
     db_session.add(job)
     db_session.flush()
@@ -566,3 +579,118 @@ def test_generate_endpoint_returns_enqueued(
     response = client.post(f"/api/matches/{match.id}/generate")
     assert response.status_code == 200
     assert response.json()["action"] == "enqueued"
+
+
+@requires_db
+def test_search_jobs_matches_title_and_company(
+    api_client: TestClient, db_session: Session
+) -> None:
+    older = datetime(2026, 1, 1, tzinfo=UTC)
+    newer = datetime(2026, 6, 1, tzinfo=UTC)
+    title_token = f"zxqtitle-{uuid.uuid4().hex[:8]}"
+    company_token = f"zxqco-{uuid.uuid4().hex[:8]}"
+    title_hit = _add_company_job(
+        db_session,
+        title=f"Staff Engineer {title_token}",
+        url="https://example.test/jobs/title",
+        company_name="Globex",
+        posted_at=older,
+    )
+    company_hit = _add_company_job(
+        db_session,
+        title="Product Designer",
+        url="https://example.test/jobs/company",
+        company_name=f"{company_token} Labs",
+        posted_at=newer,
+    )
+    _add_company_job(
+        db_session,
+        title="Warehouse Associate",
+        url="https://example.test/jobs/miss",
+        company_name="Initech",
+        location="Austin, TX",
+    )
+
+    title_response = api_client.get("/api/jobs", params={"q": title_token})
+    assert title_response.status_code == 200
+    title_ids = [row["id"] for row in title_response.json()["jobs"]]
+    assert title_ids == [str(title_hit.id)]
+
+    company_response = api_client.get("/api/jobs", params={"q": company_token})
+    assert company_response.status_code == 200
+    company_rows = company_response.json()["jobs"]
+    assert [row["id"] for row in company_rows] == [str(company_hit.id)]
+    assert company_rows[0]["company"] == f"{company_token} Labs"
+    assert company_rows[0]["title"] == "Product Designer"
+
+    miss = api_client.get("/api/jobs", params={"q": f"zzzz-{uuid.uuid4().hex}"})
+    assert miss.status_code == 200
+    assert miss.json()["jobs"] == []
+
+
+@requires_db
+def test_search_jobs_empty_query_returns_recent(
+    api_client: TestClient, db_session: Session
+) -> None:
+    older = _add_company_job(
+        db_session,
+        title="Older Role",
+        url="https://example.test/jobs/older",
+        posted_at=datetime(2099, 1, 1, tzinfo=UTC),
+    )
+    newer = _add_company_job(
+        db_session,
+        title="Newer Role",
+        url="https://example.test/jobs/newer",
+        posted_at=datetime(2099, 6, 1, tzinfo=UTC),
+    )
+
+    response = api_client.get("/api/jobs")
+    assert response.status_code == 200
+    rows = response.json()["jobs"]
+    ids = [row["id"] for row in rows]
+    assert str(newer.id) in ids
+    assert str(older.id) in ids
+    assert ids.index(str(newer.id)) < ids.index(str(older.id))
+    assert "extracted_at" in rows[0]
+
+
+@requires_db
+def test_get_job_returns_description_and_extracted_fields(
+    api_client: TestClient, db_session: Session
+) -> None:
+    extracted_at = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
+    job = _add_company_job(
+        db_session,
+        title="Platform Engineer",
+        url="https://example.test/jobs/platform",
+        company_name="Umbrella",
+        location="Seattle, WA",
+        raw_jd="Build and operate the internal developer platform.",
+        extracted_at=extracted_at,
+        seniority="mid",
+        hard_requirements=["Python", "Kubernetes"],
+        nice_to_haves=["Terraform"],
+    )
+
+    response = api_client.get(f"/api/jobs/{job.id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(job.id)
+    assert body["title"] == "Platform Engineer"
+    assert body["company"] == "Umbrella"
+    assert body["location"] == "Seattle, WA"
+    assert body["url"] == "https://example.test/jobs/platform"
+    assert body["raw_jd"] == "Build and operate the internal developer platform."
+    assert body["seniority"] == "mid"
+    assert body["hard_requirements"] == ["Python", "Kubernetes"]
+    assert body["nice_to_haves"] == ["Terraform"]
+    assert body["extracted_at"] == "2026-07-15T12:00:00Z"
+    assert body["comp_min"] == 120_000
+
+
+@requires_db
+def test_get_job_not_found(api_client: TestClient) -> None:
+    response = api_client.get(f"/api/jobs/{uuid.uuid4()}")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]

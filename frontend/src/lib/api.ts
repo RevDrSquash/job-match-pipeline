@@ -1,5 +1,7 @@
 import type {
   Generation,
+  JobDetail,
+  JobSummary,
   Match,
   Profile,
   User,
@@ -74,4 +76,17 @@ export function requestGeneration(
 
 export function fetchGeneration(generationId: string): Promise<Generation> {
   return request<Generation>(`/api/generations/${generationId}`);
+}
+
+export async function searchJobs(query = ""): Promise<JobSummary[]> {
+  const params = new URLSearchParams();
+  const trimmed = query.trim();
+  if (trimmed) params.set("q", trimmed);
+  const suffix = params.size ? `?${params}` : "";
+  const result = await request<{ jobs: JobSummary[] }>(`/api/jobs${suffix}`);
+  return result.jobs;
+}
+
+export function fetchJob(jobId: string): Promise<JobDetail> {
+  return request<JobDetail>(`/api/jobs/${jobId}`);
 }

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Company, Generation, Job, Match, PipelineEvent, Skill, User
@@ -36,6 +36,7 @@ SKIP_REASON_CODES = frozenset(
 )
 OUTCOME_VALUES = frozenset({"interview", "rejected"})
 RESCAN_MESSAGE = "We'll re-scan your matches shortly."
+JOB_SEARCH_LIMIT = 50
 
 
 def list_users(session: Session) -> list[dict[str, Any]]:
@@ -107,6 +108,48 @@ def list_matches(
         )
         for match, job, company_name in rows
     ]
+
+
+def search_jobs(session: Session, q: str | None = None) -> list[dict[str, Any]]:
+    statement = select(Job, Company.name).outerjoin(
+        Company, Company.id == Job.company_id
+    )
+    term = (q or "").strip()
+    if term:
+        pattern = f"%{term}%"
+        statement = statement.where(
+            or_(
+                Job.title.ilike(pattern),
+                Company.name.ilike(pattern),
+                Job.location.ilike(pattern),
+            )
+        )
+    rows = session.execute(
+        statement.order_by(Job.posted_at.desc().nulls_last()).limit(JOB_SEARCH_LIMIT)
+    ).all()
+    return [_job_card_payload(job, company_name) for job, company_name in rows]
+
+
+def get_job(session: Session, job_id: uuid.UUID) -> dict[str, Any]:
+    row = session.execute(
+        select(Job, Company.name)
+        .outerjoin(Company, Company.id == Job.company_id)
+        .where(Job.id == job_id)
+    ).one_or_none()
+    if row is None:
+        raise PrivacySafeError("job not found")
+    job, company_name = row
+    payload = _job_card_payload(job, company_name)
+    payload.update(
+        {
+            "url": job.url,
+            "raw_jd": job.raw_jd,
+            "seniority": job.seniority,
+            "hard_requirements": list(job.hard_requirements or []),
+            "nice_to_haves": list(job.nice_to_haves or []),
+        }
+    )
+    return payload
 
 
 def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]:
@@ -442,6 +485,19 @@ def _profile_payload(session: Session, payload: dict[str, Any]) -> dict[str, Any
     enriched = dict(payload)
     enriched["skills"] = _skill_refs(skill_ids, label_map)
     return enriched
+
+
+def _job_card_payload(job: Job, company_name: str | None) -> dict[str, Any]:
+    return {
+        "id": str(job.id),
+        "title": job.title,
+        "company": company_name,
+        "location": job.location,
+        "comp_min": job.comp_min,
+        "comp_max": job.comp_max,
+        "posted_at": _iso(job.posted_at),
+        "extracted_at": _iso(job.extracted_at),
+    }
 
 
 def _match_payload(

@@ -112,6 +112,25 @@ export type Generation = {
   ui: MatchUiState;
 };
 
+export type JobSummary = {
+  id: string;
+  title: string | null;
+  company: string | null;
+  location: string | null;
+  comp_min: number | null;
+  comp_max: number | null;
+  posted_at: string | null;
+  extracted_at: string | null;
+};
+
+export type JobDetail = JobSummary & {
+  url: string | null;
+  raw_jd: string | null;
+  seniority: string | null;
+  hard_requirements: string[];
+  nice_to_haves: string[];
+};
+
 export type AdminMetrics = {
   collected_at: string;
   funnel: Record<string, number>;

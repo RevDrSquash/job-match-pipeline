@@ -131,7 +131,7 @@ Incremental matches jobs ingested or extracted since the last completed cycle ag
 
 ## Local UI
 
-Single-user Next.js app in [`frontend/`](frontend/) — match feed, screened-out view, profile editor, generation handoff, and an admin dashboard at `/admin`. It talks to the user-facing `/api/*` router on the FastAPI app (distinct from the internal `/handlers/*` workers); Next.js rewrites proxy `/api/*` to `API_BASE_URL` (default `http://localhost:8080`), so there is no CORS setup. Design: [`docs/UI.md`](docs/UI.md), "Local UI milestone".
+Single-user Next.js app in [`frontend/`](frontend/) — match feed, job search at `/jobs`, profile editor, generation handoff, and an admin dashboard at `/admin`. It talks to the user-facing `/api/*` router on the FastAPI app (distinct from the internal `/handlers/*` workers); Next.js rewrites proxy `/api/*` to `API_BASE_URL` (default `http://localhost:8080`), so there is no CORS setup. Design: [`docs/UI.md`](docs/UI.md), "Local UI milestone".
 
 **Via Docker:** `docker compose up --build` includes the `web` service — open http://localhost:3100.
 
