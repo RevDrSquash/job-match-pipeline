@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.ats.base import PermanentIngestError, Posting
-from app.ats.normalize import html_to_text
+from app.ats.normalize import html_to_text, sanitize_jd_html
 from app.ats.registry import get_adapter
 from app.db.models import Job
 from app.ingest.events import record_pipeline_event
@@ -68,6 +68,7 @@ def ingest_posting(session: Session, payload: dict[str, Any]) -> IngestResult:
         "comp_min": posting.comp_min,
         "comp_max": posting.comp_max,
         "raw_jd": posting.raw_jd,
+        "raw_jd_html": sanitize_jd_html(posting.raw_jd_html),
     }
 
     # ingested_at is deliberately absent from the conflict update: redelivery /
@@ -89,6 +90,7 @@ def ingest_posting(session: Session, payload: dict[str, Any]) -> IngestResult:
                 "comp_min": values["comp_min"],
                 "comp_max": values["comp_max"],
                 "raw_jd": values["raw_jd"],
+                "raw_jd_html": values["raw_jd_html"],
                 "posted_at": values["posted_at"],
                 "expires_at": values["expires_at"],
                 "ats_provider": values["ats_provider"],
@@ -118,7 +120,13 @@ def _materialize_posting(
 
     title = payload.get("title")
     raw_provided = "raw_jd" in payload and payload.get("raw_jd") is not None
-    raw_jd = payload.get("raw_jd")
+    raw_jd_source = payload.get("raw_jd")
+    raw_jd_html = payload.get("raw_jd_html")
+    if not isinstance(raw_jd_html, str) or not raw_jd_html.strip():
+        # Direct ingest payloads often put HTML in raw_jd with no separate
+        # display copy — keep the original string as the HTML source.
+        raw_jd_html = raw_jd_source if isinstance(raw_jd_source, str) else None
+    raw_jd = raw_jd_source
     if isinstance(raw_jd, str):
         raw_jd = html_to_text(raw_jd)
 
@@ -152,6 +160,7 @@ def _materialize_posting(
             comp_min=_int_or_none(payload.get("comp_min")),
             comp_max=_int_or_none(payload.get("comp_max")),
             raw_jd=raw_jd,
+            raw_jd_html=raw_jd_html,
             posted_at=_parse_dt(payload.get("posted_at")),
             external_id=_str_or_none(payload.get("external_id")),
         ),

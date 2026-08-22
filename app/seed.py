@@ -3,6 +3,7 @@
 Usage:
   python -m app.seed
   python -m app.seed --target 500 --config config/seed_companies.json
+  python -m app.seed --backfill-html
 
 Runs sequentially against public ATS JSON APIs at low volume (see docs/OPEN_ISSUES.md §5).
 Requires a migrated Postgres (docker compose up db -d && alembic upgrade head).
@@ -96,29 +97,117 @@ def existing_hashes(hashes: list[str]) -> set[str]:
         return set(session.scalars(select(Job.url_hash).where(Job.url_hash.in_(hashes))).all())
 
 
+def hashes_missing_html(hashes: list[str]) -> set[str]:
+    """url_hashes that exist but have no sanitized HTML display copy."""
+    if not hashes:
+        return set()
+    with db_session() as session:
+        return set(
+            session.scalars(
+                select(Job.url_hash).where(
+                    Job.url_hash.in_(hashes),
+                    Job.raw_jd_html.is_(None),
+                )
+            ).all()
+        )
+
+
+def html_missing_count() -> int:
+    with db_session() as session:
+        return int(
+            session.scalar(select(func.count()).select_from(Job).where(Job.raw_jd_html.is_(None)))
+            or 0
+        )
+
+
+def companies_from_db() -> list[dict[str, Any]]:
+    """Boards already in the DB — used by --backfill-html so we don't skip extras."""
+    with db_session() as session:
+        rows = session.scalars(
+            select(Company).where(
+                Company.ats_provider.is_not(None),
+                Company.board_token.is_not(None),
+            )
+        ).all()
+        return [
+            {
+                "id": company.id,
+                "name": company.name,
+                "ats_provider": company.ats_provider,
+                "board_token": company.board_token,
+            }
+            for company in rows
+        ]
+
+
+def backfill_html_from_detail() -> int:
+    """Fetch leftover missing-HTML rows via per-posting JSON (closed list entries)."""
+    with db_session() as session:
+        leftovers = session.execute(
+            select(Job.id, Job.url, Job.ats_provider, Job.company_id).where(
+                Job.raw_jd_html.is_(None),
+                Job.url.is_not(None),
+                Job.ats_provider.is_not(None),
+            )
+        ).all()
+    filled = 0
+    for job_id, url, provider, company_id in leftovers:
+        try:
+            fetched = get_adapter(str(provider)).fetch_posting(str(url))
+        except PermanentIngestError as exc:
+            logger.info(
+                "html detail skip job_id=%s reason=%s",
+                job_id,
+                exc.reason,
+            )
+            continue
+        except Exception:
+            logger.info("html detail retryable skip job_id=%s", job_id, exc_info=True)
+            continue
+        payload = posting_to_ingest_payload(
+            fetched,
+            company_id=company_id,
+            ats_provider=str(provider),
+        )
+        with db_session() as session:
+            result = ingest_posting(session, payload)
+            session.commit()
+        if result.action == "ingested":
+            filled += 1
+    return filled
+
+
 def seed(
     *,
     config_path: Path = DEFAULT_CONFIG,
     target: int = DEFAULT_TARGET,
     inter_board_sleep: float = INTER_BOARD_SLEEP_SECONDS,
+    backfill_html: bool = False,
 ) -> dict[str, Any]:
-    companies_cfg = load_seed_companies(config_path)
-    companies = upsert_seed_companies(companies_cfg)
+    if backfill_html:
+        companies = companies_from_db()
+    else:
+        companies_cfg = load_seed_companies(config_path)
+        companies = upsert_seed_companies(companies_cfg)
     start_count = job_count()
     current_count = start_count
     ingested = 0
+    html_backfilled = 0
     skipped = 0
     board_errors = 0
+    missing_before = html_missing_count()
 
     logger.info(
-        "seed start existing_jobs=%s target=%s boards=%s",
+        "seed start existing_jobs=%s target=%s boards=%s backfill_html=%s missing_html=%s",
         start_count,
         target,
         len(companies),
+        backfill_html,
+        missing_before,
     )
 
     for index, company in enumerate(companies):
-        if current_count >= target:
+        if not backfill_html and current_count >= target:
             break
         provider = str(company["ats_provider"] or "")
         token = str(company["board_token"] or "")
@@ -142,11 +231,16 @@ def seed(
 
         hashes = [hash_url(p.url) for p in postings]
         known = existing_hashes(hashes)
+        need_html = hashes_missing_html(hashes) if backfill_html else set()
         for posting in postings:
-            if current_count >= target:
+            if not backfill_html and current_count >= target:
                 break
             url_hash = hash_url(posting.url)
-            if url_hash in known:
+            if backfill_html:
+                if url_hash not in need_html:
+                    skipped += 1
+                    continue
+            elif url_hash in known:
                 skipped += 1
                 continue
             payload = posting_to_ingest_payload(
@@ -158,9 +252,13 @@ def seed(
                 result = ingest_posting(session, payload)
                 session.commit()
             if result.action == "ingested":
-                ingested += 1
-                current_count += 1
-                known.add(url_hash)
+                if url_hash in known:
+                    html_backfilled += 1
+                    need_html.discard(url_hash)
+                else:
+                    ingested += 1
+                    current_count += 1
+                    known.add(url_hash)
             else:
                 skipped += 1
                 logger.info(
@@ -172,15 +270,25 @@ def seed(
         if index < len(companies) - 1 and inter_board_sleep > 0:
             time.sleep(inter_board_sleep)
 
+    detail_backfilled = 0
+    if backfill_html:
+        detail_backfilled = backfill_html_from_detail()
+
     final_count = job_count()
     summary = {
         "existing_before": start_count,
         "ingested": ingested,
+        "html_backfilled": html_backfilled + detail_backfilled,
+        "html_backfilled_from_list": html_backfilled,
+        "html_backfilled_from_detail": detail_backfilled,
+        "html_missing_before": missing_before,
+        "html_missing_after": html_missing_count(),
         "skipped": skipped,
         "board_errors": board_errors,
         "jobs_total": final_count,
         "target": target,
         "reached_target": final_count >= target,
+        "backfill_html": backfill_html,
     }
     logger.info("seed complete %s", summary)
     return summary
@@ -206,6 +314,14 @@ def main(argv: list[str] | None = None) -> int:
         default=INTER_BOARD_SLEEP_SECONDS,
         help="Seconds to sleep between boards",
     )
+    parser.add_argument(
+        "--backfill-html",
+        action="store_true",
+        help=(
+            "Re-list known boards and upsert sanitized JD HTML onto existing rows "
+            "that are missing it. Does not insert new jobs or raise the corpus target."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -213,7 +329,12 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    summary = seed(config_path=args.config, target=args.target, inter_board_sleep=args.sleep)
+    summary = seed(
+        config_path=args.config,
+        target=args.target,
+        inter_board_sleep=args.sleep,
+        backfill_html=args.backfill_html,
+    )
     print(json.dumps(summary, indent=2))
     return 0 if summary["jobs_total"] > 0 else 1
 

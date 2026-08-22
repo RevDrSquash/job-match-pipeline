@@ -12,11 +12,13 @@ from pydantic import BaseModel, ConfigDict
 from app.api.service import (
     admin_metrics,
     get_generation,
+    get_job,
     get_profile,
     list_matches,
     list_users,
     patch_profile,
     record_match_event,
+    search_jobs,
     trigger_generate,
 )
 from app.db.session import db_session
@@ -95,6 +97,21 @@ def create_api_router() -> APIRouter:
     ) -> dict[str, list[dict[str, Any]]]:
         with db_session() as session:
             return {"matches": list_matches(session, user_id)}
+
+    @router.get("/jobs")
+    def api_search_jobs(
+        q: Annotated[str | None, Query()] = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        with db_session() as session:
+            return {"jobs": search_jobs(session, q)}
+
+    @router.get("/jobs/{job_id}")
+    def api_get_job(job_id: uuid.UUID) -> dict[str, Any]:
+        try:
+            with db_session() as session:
+                return get_job(session, job_id)
+        except PrivacySafeError as exc:
+            raise _client_error(exc) from None
 
     @router.get("/generations/{generation_id}")
     def api_get_generation(generation_id: uuid.UUID) -> dict[str, Any]:

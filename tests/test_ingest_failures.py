@@ -130,6 +130,12 @@ def test_ingest_success_writes_job_and_event(db_session: Session) -> None:
     job = db_session.get(Job, uuid.UUID(result.job_id))
     assert job is not None
     first_ingested_at = job.ingested_at
+    assert job.raw_jd is not None
+    assert "<" not in job.raw_jd
+    assert "Build reliable services." in job.raw_jd
+    assert job.raw_jd_html is not None
+    assert "<p>" in job.raw_jd_html
+    assert "Build reliable services." in job.raw_jd_html
 
     # Re-ingest same URL is an upsert (still action=ingested), not a new failure.
     again = ingest_posting(
@@ -137,7 +143,10 @@ def test_ingest_success_writes_job_and_event(db_session: Session) -> None:
         {
             "url": "https://example.test/jobs/ok-1",
             "title": "Backend Engineer II",
-            "raw_jd": "<p>Build reliable services. Updated.</p>",
+            "raw_jd": (
+                '<p class="lead" style="color:red" onclick="alert(1)">'
+                "Build reliable services. Updated.</p>"
+            ),
             "ats_provider": "greenhouse",
         },
     )
@@ -152,3 +161,11 @@ def test_ingest_success_writes_job_and_event(db_session: Session) -> None:
     assert job is not None
     assert job.title == "Backend Engineer II"
     assert job.ingested_at == first_ingested_at
+    assert job.raw_jd is not None
+    assert "Updated" in job.raw_jd
+    assert job.raw_jd_html is not None
+    assert "Updated" in job.raw_jd_html
+    assert "<p>" in job.raw_jd_html
+    assert "style=" not in job.raw_jd_html
+    assert "onclick" not in job.raw_jd_html
+    assert "class=" not in job.raw_jd_html

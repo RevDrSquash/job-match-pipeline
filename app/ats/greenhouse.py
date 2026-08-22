@@ -81,7 +81,9 @@ class GreenhouseAdapter:
         )
 
         posted_at = _parse_greenhouse_ts(job.get("first_published") or job.get("updated_at"))
-        raw_jd = html_to_text(job.get("content"))
+        content = job.get("content")
+        raw_jd = html_to_text(content)
+        raw_jd_html = content if isinstance(content, str) else None
 
         return Posting(
             url=str(absolute_url).strip(),
@@ -93,6 +95,7 @@ class GreenhouseAdapter:
             comp_min=comp_min,
             comp_max=comp_max,
             raw_jd=raw_jd,
+            raw_jd_html=raw_jd_html,
             posted_at=posted_at,
             external_id=str(job["id"]) if job.get("id") is not None else None,
         )
@@ -130,14 +133,23 @@ class GreenhouseAdapter:
         return employment_type, work_arrangement, comp_min, comp_max
 
     def _parse_board_job_url(self, url: str) -> tuple[str, str] | None:
-        # https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{id}
+        # JSON API: https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{id}
         marker = "/v1/boards/"
-        if marker not in url:
+        if marker in url:
+            rest = url.split(marker, 1)[1]
+            parts = rest.strip("/").split("/")
+            if len(parts) >= 3 and parts[1] == "jobs":
+                return parts[0], parts[2].split("?")[0]
             return None
-        rest = url.split(marker, 1)[1]
-        parts = rest.strip("/").split("/")
-        if len(parts) >= 3 and parts[1] == "jobs":
-            return parts[0], parts[2].split("?")[0]
+        # Hosted boards: https://job-boards.greenhouse.io/{token}/jobs/{id}
+        # or https://boards.greenhouse.io/{token}/jobs/{id}
+        for host in ("job-boards.greenhouse.io/", "boards.greenhouse.io/"):
+            if host not in url:
+                continue
+            rest = url.split(host, 1)[1]
+            parts = rest.strip("/").split("/")
+            if len(parts) >= 3 and parts[1] == "jobs":
+                return parts[0], parts[2].split("?")[0]
         return None
 
 

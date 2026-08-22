@@ -775,6 +775,76 @@
   line-height: 1.75;
 }
 
+.jobDescriptionHtml {
+  overflow-wrap: anywhere;
+  color: #27312c;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.jobDescriptionHtml h1,
+.jobDescriptionHtml h2,
+.jobDescriptionHtml h3,
+.jobDescriptionHtml h4,
+.jobDescriptionHtml h5,
+.jobDescriptionHtml h6 {
+  margin: 1.15em 0 0.4em;
+  color: #1b2420;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.jobDescriptionHtml h1 {
+  font-size: 1.45em;
+}
+
+.jobDescriptionHtml h2 {
+  font-size: 1.25em;
+}
+
+.jobDescriptionHtml h3,
+.jobDescriptionHtml h4 {
+  font-size: 1.1em;
+}
+
+.jobDescriptionHtml h5,
+.jobDescriptionHtml h6 {
+  font-size: 1em;
+}
+
+.jobDescriptionHtml p {
+  margin: 0 0 0.85em;
+}
+
+.jobDescriptionHtml ul,
+.jobDescriptionHtml ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.4em;
+}
+
+.jobDescriptionHtml li {
+  margin: 0.25em 0;
+}
+
+.jobDescriptionHtml a {
+  color: var(--green-dark);
+}
+
+.jobDescriptionHtml table {
+  width: 100%;
+  margin: 0 0 0.85em;
+  border-collapse: collapse;
+}
+
+.jobDescriptionHtml th,
+.jobDescriptionHtml td {
+  padding: 0.35em 0.5em;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
 .sideStack {
   display: grid;
   gap: 14px;
@@ -954,6 +1024,41 @@
   font-size: 11px;
 }
 
+.searchForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.searchForm input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+  color: var(--ink);
+  background: white;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+
+.searchForm input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(23, 107, 77, 0.11);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 850px) {
   .pageHeader,
   .handoffHeader {
@@ -987,6 +1092,10 @@
   }
 
   .metricsHero {
+    grid-template-columns: 1fr;
+  }
+
+  .searchForm {
     grid-template-columns: 1fr;
   }
 }

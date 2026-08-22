@@ -89,6 +89,7 @@ class Job(Base):
     comp_min: Mapped[int | None] = mapped_column(Integer)
     comp_max: Mapped[int | None] = mapped_column(Integer)
     raw_jd: Mapped[str | None] = mapped_column(Text)
+    raw_jd_html: Mapped[str | None] = mapped_column(Text)
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     seniority: Mapped[str | None] = mapped_column(Text)
     hard_requirements: Mapped[list[str] | None] = mapped_column(ARRAY(Text))

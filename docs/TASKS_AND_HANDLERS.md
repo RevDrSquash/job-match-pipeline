@@ -50,8 +50,8 @@ Set `max-concurrent-dispatches` in line with the Cloud SQL connection budget, no
 
 1. Fetch JD content. Several ATS providers return full content inline on the list endpoint (e.g. Greenhouse `?content=true`), skipping this fetch entirely.
 2. Normalize layout, strip boilerplate
-3. Store **raw JD** plus the structured fields the ATS already provides — title, location, department, employment type, sometimes comp
-4. Upsert on `url_hash` (dedup; at-least-once delivery makes duplicates certain). The conflict update refreshes ATS metadata and raw JD but **never `ingested_at`** — a redelivered or re-fetched posting must not look new to the incremental `match-batch` predicate (`ingested_at > last_cycle`), or every re-seen posting would re-drive the paid extract → screen → generate funnel.
+3. Store **raw JD** plus the structured fields the ATS already provides — title, location, department, employment type, sometimes comp. Also store `raw_jd_html`: a sanitized HTML copy of the ATS description, **display-only**. Sanitization runs once in `ingest_posting` (`nh3`; structural tags only). `raw_jd` stays plain text and is the only input to prompts, the heuristic extractor, embeddings, and the length gate.
+4. Upsert on `url_hash` (dedup; at-least-once delivery makes duplicates certain). The conflict update refreshes ATS metadata, raw JD, and `raw_jd_html` but **never `ingested_at`** — a redelivered or re-fetched posting must not look new to the incremental `match-batch` predicate (`ingested_at > last_cycle`), or every re-seen posting would re-drive the paid extract → screen → generate funnel.
 
 **No LLM extraction here.** Deliberate — see the note below.
 
@@ -264,6 +264,7 @@ jobs
   -- from ATS metadata, available at ingest, drives the prefilter:
   title, location, work_arrangement, department, employment_type, comp_min, comp_max
   raw_jd
+  raw_jd_html              -- sanitized at ingest; UI display only; NULL when source was plain text
   -- from extract-job, NULL until first prefilter hit:
   extracted_at
   seniority, hard_requirements[], nice_to_haves[]
