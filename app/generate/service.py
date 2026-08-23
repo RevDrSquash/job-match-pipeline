@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import Generation, Job, Match, User, UserProfile
-from app.extract.llm import PermanentLLMError, RetryableLLMError
 from app.generate.buckets import (
     assemble_skill_buckets,
     job_terminology_text,
@@ -27,6 +26,7 @@ from app.generate.llm import (
     log_generate_usage,
 )
 from app.ingest.events import record_pipeline_event, usage_details
+from app.llm import PermanentLLMError, RetryableLLMError
 from app.privacy import log_profile_access
 from app.profile.deps import build_skill_linker
 from app.queue import TaskQueue

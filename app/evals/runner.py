@@ -14,7 +14,7 @@ from app.evals.paths import find_results_dir, find_sets_root, load_set
 from app.evals.report import EvalReport, SuiteResult, render_summary, utc_now, write_report
 from app.evals.retrieval import run_retrieval_suite
 from app.evals.skill_linking import run_skill_linking_suite
-from app.extract.llm import RetryableLLMError
+from app.llm import RetryableLLMError
 from app.skills.factory import linker_from_records
 from app.skills.linker import InMemorySkillLinker, SkillLinker
 from app.skills.taxonomy import seed_records

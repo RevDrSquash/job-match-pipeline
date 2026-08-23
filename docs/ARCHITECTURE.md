@@ -13,6 +13,14 @@ The central constraint. Ingest is O(jobs) — paid once per posting regardless o
 
 **Never fabricate.** Verification is a first-class pipeline stage, not a post-hoc check.
 
+## LLM layer
+
+Completion calls go through `app/llm/`: LangChain chat models (`langchain-google-genai`, `langchain-anthropic`) with `temperature=0` and `max_retries=0`, structured output via Pydantic, token/cost logging from `AIMessage.usage_metadata`, and a shared retryable/permanent error taxonomy. Embeddings and the reranker stay on raw `httpx` — they are single vector calls, not workflows.
+
+LangGraph is the **within-handler** workflow engine. `TaskQueue` remains the **cross-handler** orchestrator: at-least-once delivery, handler idempotency, and the 2xx-permanent / 5xx-retryable contract do not move into a graph. The first graph is `verify-resume` (deterministic checks → JD-blind grounding → coverage → pass / regenerate-once / needs_review). New multi-step LLM work should be a graph next to its handler, not a new httpx client.
+
+Never enable LangSmith tracing (`LANGSMITH_TRACING` unset). Prompts on profile-touching stages contain personal information.
+
 ## Target scale
 
 * Steady state ingest: ~10k distinct new postings/day observed (~0.12/sec), likely ~25k under systematic coverage. See Posting Sources for how this was reconciled against a conflicting 250k/day figure.

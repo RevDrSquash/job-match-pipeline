@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.models import Job, Match, User, UserProfile
-from app.extract.llm import PermanentLLMError, RetryableLLMError
 from app.ingest.events import record_pipeline_event, usage_details
+from app.llm import PermanentLLMError, RetryableLLMError
 from app.privacy import log_profile_access
 from app.queue import TaskQueue
 from app.quota import try_consume_quota

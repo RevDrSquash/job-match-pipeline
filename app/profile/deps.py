@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.extract.clients import build_document_embedder
 from app.extract.embed import DocumentEmbedder
-from app.extract.llm import RetryableLLMError
+from app.llm import RetryableLLMError
 from app.privacy import PrivacySafeError
 from app.profile.llm import GeminiProfileLLM
 from app.profile.parse import FallbackResumeParser, LlmResumeParser, ResumeParser

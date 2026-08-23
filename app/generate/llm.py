@@ -15,45 +15,18 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 
 from app.config import Settings, get_settings
-from app.extract.llm import (
+from app.generate.schema import GeneratedResume
+from app.llm import (
     DEFAULT_GEMINI_API_BASE,
     LLMUsage,
-    MalformedLLMOutputError,
     PermanentLLMError,
     RetryableLLMError,
-    classify_llm_status,
-    parse_json_object,
-    usage_cost,
+    build_gemini_chat,
+    structured_call,
 )
-from app.generate.schema import GeneratedResume
 from app.privacy import safe_exc
 
 logger = logging.getLogger(__name__)
-
-GENERATION_RESPONSE_SCHEMA: dict[str, Any] = {
-    "type": "OBJECT",
-    "properties": {
-        "resume_doc": {"type": "STRING"},
-        "employers": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "titles": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "date_ranges": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "claimed_skill_ids": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "claims": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "text": {"type": "STRING"},
-                    "span_ids": {"type": "ARRAY", "items": {"type": "STRING"}},
-                    "kind": {"type": "STRING"},
-                    "canonical_skill_id": {"type": "STRING"},
-                },
-                "required": ["text", "span_ids"],
-            },
-        },
-    },
-    "required": ["resume_doc", "claims"],
-}
 
 GENERATION_SYSTEM_PROMPT = """\
 You write a tailored resume strictly grounded in the candidate's work history.
@@ -145,6 +118,26 @@ def build_job_context(
     return "\n".join(parts)
 
 
+def generation_messages(*, cache_prefix: str, user_text: str, cached: bool) -> list[dict[str, Any]]:
+    """System + user messages. Implicit cache: prefix then JD as two user parts."""
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": GENERATION_SYSTEM_PROMPT},
+    ]
+    if cached:
+        messages.append({"role": "user", "content": user_text})
+        return messages
+    messages.append(
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": cache_prefix},
+                {"type": "text", "text": user_text},
+            ],
+        }
+    )
+    return messages
+
+
 _cache_lock = threading.Lock()
 _cache_names: dict[str, str] = {}
 
@@ -161,15 +154,17 @@ class GeminiGenerateLLM:
         input_usd_per_mtok: float = 1.25,
         output_usd_per_mtok: float = 10.00,
         timeout: float = 90.0,
+        chat_model: object | None = None,
     ) -> None:
-        if not api_key:
+        if chat_model is None and not api_key:
             raise RetryableLLMError("llm_api_key is not configured")
         self._api_key = api_key
-        self._model = model
+        self._model_name = model
         self._api_base = api_base.rstrip("/")
         self._input_usd_per_mtok = input_usd_per_mtok
         self._output_usd_per_mtok = output_usd_per_mtok
         self._timeout = timeout
+        self._chat = chat_model
 
     def generate(
         self,
@@ -184,15 +179,19 @@ class GeminiGenerateLLM:
         _ = violations
         cache_name = self._cached_content_name(cache_prefix, cache_key)
         try:
-            data, usage = self._generate_json(
-                cache_prefix=cache_prefix,
-                user_text=job_context,
-                cache_name=cache_name,
+            resume, usage = structured_call(
+                self._chat_for(cache_name),
+                GeneratedResume,
+                model_name=self._model_name,
+                input_usd_per_mtok=self._input_usd_per_mtok,
+                output_usd_per_mtok=self._output_usd_per_mtok,
+                messages=generation_messages(
+                    cache_prefix=cache_prefix,
+                    user_text=job_context,
+                    cached=bool(cache_name),
+                ),
+                provider="generate llm",
             )
-        # Drop upstream args — errors can echo completion text (PI). The
-        # classes and messages logged here are PI-safe by construction:
-        # classify_llm_status emits status codes, safe_exc emits exception
-        # class names, and parse errors carry positions, not content.
         except PermanentLLMError as exc:
             logger.warning("generate llm permanent failure cause=%s", exc)
             raise PermanentLLMError("generate llm permanent failure") from None
@@ -201,110 +200,20 @@ class GeminiGenerateLLM:
                 "generate llm retryable failure cause=%s: %s", type(exc).__name__, exc
             )
             raise RetryableLLMError("generate llm retryable failure") from None
-        try:
-            resume = GeneratedResume.model_validate(data)
-        except Exception:
-            # temperature=0: a redelivery would pay for the same bad output.
-            raise PermanentLLMError("generate llm invalid structured output") from None
         if not (resume.resume_doc or "").strip():
             raise PermanentLLMError("generate llm empty resume")
         return resume, usage
 
-    def _generate_json(
-        self,
-        *,
-        cache_prefix: str,
-        user_text: str,
-        cache_name: str | None,
-    ) -> tuple[dict[str, Any], LLMUsage]:
-        payload: dict[str, Any] = {
-            "systemInstruction": {"parts": [{"text": GENERATION_SYSTEM_PROMPT}]},
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": GENERATION_RESPONSE_SCHEMA,
-            },
-        }
-        if cache_name:
-            payload["cachedContent"] = cache_name
-            payload["contents"] = [{"role": "user", "parts": [{"text": user_text}]}]
-        else:
-            # Implicit cache: identical work-history prefix, JD-only suffix.
-            payload["contents"] = [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": cache_prefix},
-                        {"text": user_text},
-                    ],
-                }
-            ]
-        url = f"{self._api_base}/models/{self._model}:generateContent"
-        last_malformed: MalformedLLMOutputError | None = None
-        for attempt in (1, 2):
-            try:
-                response = httpx.post(
-                    url,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": self._api_key,
-                    },
-                    json=payload,
-                    timeout=self._timeout,
-                )
-            except httpx.HTTPError as exc:
-                raise safe_exc("generate llm transport error", exc) from None
-
-            classify_llm_status(response.status_code)
-            try:
-                return self._parse_body(response)
-            except MalformedLLMOutputError as exc:
-                # One in-process retry for a billed-but-malformed completion,
-                # then permanent — never retry via the queue at full price.
-                last_malformed = exc
-                logger.warning(
-                    "generate llm malformed output attempt=%s: %s", attempt, exc
-                )
-        assert last_malformed is not None
-        raise last_malformed
-
-    def _parse_body(self, response: httpx.Response) -> tuple[dict[str, Any], LLMUsage]:
-        try:
-            body = response.json()
-        except ValueError:
-            raise MalformedLLMOutputError("llm response was not JSON") from None
-
-        usage_meta = body.get("usageMetadata") or {}
-        prompt_tokens = int(usage_meta.get("promptTokenCount") or 0)
-        completion_tokens = int(usage_meta.get("candidatesTokenCount") or 0)
-        usage = LLMUsage(
-            model=self._model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cost_usd=usage_cost(
-                prompt_tokens,
-                completion_tokens,
-                input_usd_per_mtok=self._input_usd_per_mtok,
-                output_usd_per_mtok=self._output_usd_per_mtok,
-            ),
+    def _chat_for(self, cache_name: str | None) -> object:
+        if self._chat is not None and not cache_name:
+            return self._chat
+        return build_gemini_chat(
+            api_key=self._api_key,
+            model=self._model_name,
+            api_base=self._api_base,
+            timeout=self._timeout,
+            cached_content=cache_name,
         )
-        usage_note = (
-            f"(prompt_tokens={usage.prompt_tokens} "
-            f"completion_tokens={usage.completion_tokens} "
-            f"cost_usd={usage.cost_usd:.6f})"
-        )
-        candidates = body.get("candidates") or []
-        if not candidates:
-            raise MalformedLLMOutputError(f"llm returned no candidates {usage_note}")
-        parts = ((candidates[0].get("content") or {}).get("parts")) or []
-        text = "".join(str(part.get("text") or "") for part in parts)
-        if not text.strip():
-            raise MalformedLLMOutputError(f"llm returned empty content {usage_note}")
-        try:
-            return parse_json_object(text), usage
-        except MalformedLLMOutputError as exc:
-            # parse_json_object messages carry positions, not content — safe.
-            raise MalformedLLMOutputError(f"{exc} {usage_note}") from None
 
     def _cached_content_name(self, cache_prefix: str, cache_key: str | None) -> str | None:
         if not cache_key or not cache_prefix.strip():
@@ -318,7 +227,7 @@ class GeminiGenerateLLM:
             return existing or None
         url = f"{self._api_base}/cachedContents"
         payload = {
-            "model": f"models/{self._model}",
+            "model": f"models/{self._model_name}",
             "systemInstruction": {"parts": [{"text": GENERATION_SYSTEM_PROMPT}]},
             "contents": [{"role": "user", "parts": [{"text": cache_prefix}]}],
             "ttl": "3600s",
@@ -333,8 +242,9 @@ class GeminiGenerateLLM:
                 json=payload,
                 timeout=self._timeout,
             )
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
             logger.info("generate-resume cache create failed transport")
+            _ = safe_exc("generate-resume cache create failed", exc)
             return None
         if response.status_code >= 400:
             # Short prefixes and unsupported models fall back to implicit cache.

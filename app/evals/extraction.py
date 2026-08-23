@@ -12,7 +12,8 @@ from app.evals.metrics import accuracy, match_requirement_lists, precision_recal
 from app.evals.paths import read_json, resolve_labeled_path
 from app.evals.report import SuiteResult
 from app.evals.retry import call_with_retry
-from app.extract.llm import JobExtraction, JobLLM, LLMUsage
+from app.extract.llm import JobExtraction, JobLLM
+from app.llm import LLMUsage
 from app.skills.linker import SkillLinker
 
 

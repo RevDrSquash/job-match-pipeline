@@ -11,25 +11,19 @@ import logging
 import os
 from typing import Protocol, runtime_checkable
 
-import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import Settings, get_settings
-from app.extract.llm import (
+from app.llm import (
+    DEFAULT_ANTHROPIC_API_BASE,
     LLMUsage,
-    MalformedLLMOutputError,
     PermanentLLMError,
     RetryableLLMError,
-    classify_llm_status,
-    parse_json_object,
-    usage_cost,
+    build_anthropic_chat,
+    structured_call,
 )
-from app.privacy import safe_exc
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_ANTHROPIC_API_BASE = "https://api.anthropic.com"
-ANTHROPIC_VERSION = "2023-06-01"
 
 GROUNDING_SYSTEM_PROMPT = """\
 You verify that a generated resume is grounded in the candidate's work \
@@ -120,7 +114,7 @@ def _api_key(settings: Settings) -> str:
 
 
 class AnthropicVerifyLLM:
-    """Claude Messages API client. Model name comes from Settings."""
+    """Claude structured-output client. Model name comes from Settings."""
 
     def __init__(
         self,
@@ -131,15 +125,19 @@ class AnthropicVerifyLLM:
         input_usd_per_mtok: float = 3.00,
         output_usd_per_mtok: float = 15.00,
         timeout: float = 60.0,
+        chat_model: object | None = None,
     ) -> None:
-        if not api_key:
+        if chat_model is None and not api_key:
             raise RetryableLLMError("verify_api_key is not configured")
-        self._api_key = api_key
-        self._model = model
-        self._api_base = api_base.rstrip("/")
+        self._model_name = model
         self._input_usd_per_mtok = input_usd_per_mtok
         self._output_usd_per_mtok = output_usd_per_mtok
-        self._timeout = timeout
+        self._chat = chat_model or build_anthropic_chat(
+            api_key=api_key,
+            model=model,
+            api_base=api_base,
+            timeout=timeout,
+        )
 
     def ground(
         self, *, resume_doc: str, work_history_block: str
@@ -172,92 +170,22 @@ class AnthropicVerifyLLM:
     def _complete(
         self, system: str, user_text: str
     ) -> tuple[VerifyDecision, LLMUsage]:
-        url = f"{self._api_base}/v1/messages"
-        payload = {
-            "model": self._model,
-            "max_tokens": 1024,
-            "temperature": 0,
-            "system": system,
-            "messages": [{"role": "user", "content": user_text}],
-        }
-        last_malformed: MalformedLLMOutputError | None = None
-        for attempt in (1, 2):
-            try:
-                response = httpx.post(
-                    url,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-api-key": self._api_key,
-                        "anthropic-version": ANTHROPIC_VERSION,
-                    },
-                    json=payload,
-                    timeout=self._timeout,
-                )
-            except httpx.HTTPError as exc:
-                raise RetryableLLMError("verify llm retryable failure") from safe_exc(
-                    "verify llm transport error", exc
-                )
-
-            classify_llm_status(response.status_code, provider="verify llm")
-            try:
-                return self._parse_body(response)
-            except MalformedLLMOutputError as exc:
-                # One in-process retry for a billed-but-malformed completion,
-                # then permanent — never retry via the queue at full price.
-                last_malformed = exc
-                logger.warning(
-                    "verify llm malformed output attempt=%s: %s", attempt, exc
-                )
-        assert last_malformed is not None
-        raise last_malformed
-
-    def _parse_body(self, response: httpx.Response) -> tuple[VerifyDecision, LLMUsage]:
         try:
-            body = response.json()
-            blocks = body.get("content") or []
-            text = "".join(
-                str(block.get("text") or "")
-                for block in blocks
-                if isinstance(block, dict)
-            )
-            usage_meta = body.get("usage") or {}
-            prompt_tokens = int(usage_meta.get("input_tokens") or 0)
-            completion_tokens = int(usage_meta.get("output_tokens") or 0)
-        except (TypeError, ValueError, AttributeError):
-            raise MalformedLLMOutputError("verify llm invalid response") from None
-
-        usage = LLMUsage(
-            model=self._model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cost_usd=usage_cost(
-                prompt_tokens,
-                completion_tokens,
+            decision, usage = structured_call(
+                self._chat,
+                VerifyDecision,
+                model_name=self._model_name,
                 input_usd_per_mtok=self._input_usd_per_mtok,
                 output_usd_per_mtok=self._output_usd_per_mtok,
-            ),
-        )
-        usage_note = (
-            f"(prompt_tokens={usage.prompt_tokens} "
-            f"completion_tokens={usage.completion_tokens} "
-            f"cost_usd={usage.cost_usd:.6f})"
-        )
-        if not text.strip():
-            raise MalformedLLMOutputError(f"verify llm empty content {usage_note}")
-        try:
-            data = parse_json_object(text)
-            decision = VerifyDecision.model_validate(data).normalized()
+                system_prompt=system,
+                user_text=user_text,
+                provider="verify llm",
+            )
+            return decision.normalized(), usage
         except PermanentLLMError:
-            # Includes MalformedLLMOutputError from parse and the deterministic
-            # invalid-verdict case. Sanitized: no completion text in args.
-            raise MalformedLLMOutputError(
-                f"verify llm invalid structured output {usage_note}"
-            ) from None
-        except Exception:
-            raise MalformedLLMOutputError(
-                f"verify llm invalid structured output {usage_note}"
-            ) from None
-        return decision, usage
+            raise PermanentLLMError("verify llm permanent failure") from None
+        except RetryableLLMError:
+            raise RetryableLLMError("verify llm retryable failure") from None
 
 
 def build_verify_llm(settings: Settings | None = None) -> VerifyLLM:

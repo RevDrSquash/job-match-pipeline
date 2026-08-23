@@ -16,10 +16,10 @@ from app.config import Settings
 from app.evals.paths import read_json
 from app.evals.report import SuiteResult
 from app.evals.retry import call_with_retry
-from app.extract.llm import LLMUsage
 from app.generate.history import flatten_work_history_text, render_work_history_block
 from app.generate.llm import GenerateLLM, build_job_context
 from app.generate.schema import Claim, GeneratedResume
+from app.llm import LLMUsage
 from app.match.skills import skill_buckets
 from app.skills.linker import SkillLinker
 from app.skills.normalize import normalize_label
