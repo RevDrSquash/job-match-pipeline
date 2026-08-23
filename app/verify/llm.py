@@ -63,7 +63,8 @@ class VerifyDecision(BaseModel):
     def normalized(self) -> VerifyDecision:
         verdict = (self.verdict or "").strip().lower()
         if verdict not in {"pass", "fail"}:
-            # temperature=0: a redelivery would pay for the same bad output.
+            # A redelivery would pay full price again for likely the same
+            # bad output — go permanent instead of burning queue retries.
             raise PermanentLLMError("verify llm invalid verdict")
         cleaned = [str(item).strip() for item in self.violations if str(item).strip()]
         return VerifyDecision(

@@ -81,7 +81,8 @@ class GateDecision(BaseModel):
         try:
             label = normalize_qualification_label(self.label)
         except ValueError:
-            # temperature=0 + enforced schema: a bad label is deterministic.
+            # Schema-enforced output with a bad label is a poison payload;
+            # retrying re-bills with low odds of a different answer.
             raise PermanentLLMError("gate llm invalid label") from None
         reason = (self.reason or "").strip()
         try:

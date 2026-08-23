@@ -171,8 +171,8 @@ def test_gate_decision_normalizes_and_rejects_bad_label() -> None:
     ).normalized()
     assert parsed.label == "clearly_qualified"
     assert parsed.confidence == 1.0
-    # temperature=0 + enforced schema: a bad label is deterministic — retrying
-    # via the queue would pay for the same bad output, so it is permanent.
+    # A bad label despite the enforced schema is a poison payload — queue
+    # retries would re-bill with low odds of a different answer, so permanent.
     with pytest.raises(PermanentLLMError):
         GateDecision(label="maybe", reason="x", confidence=0.1).normalized()
 

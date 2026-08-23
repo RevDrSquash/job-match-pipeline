@@ -40,8 +40,8 @@ class PermanentLLMError(Exception):
 
     Covers request-level HTTP 400 (poison payload; retrying burns queue
     attempts for the same answer) and billed completions that stay malformed
-    after one in-process retry (temperature is 0 — a repeat retry pays full
-    price for the same bad output).
+    after one in-process retry — further queue retries pay full price again
+    with low odds of a different outcome.
     """
 
 
