@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  fetchJob,
   fetchMatches,
   fetchUsers,
   recordMatchEvent,
   requestGeneration,
 } from "@/lib/api";
-import type { Match, SkillRef, User } from "@/lib/types";
+import type { JobDetail, Match, SkillRef, User } from "@/lib/types";
 import { skillDisplayLabel } from "@/lib/skills";
 import styles from "@/app/dashboard.module.css";
+import JobDescriptionViewer from "@/app/ui/job-description-viewer";
 
 const SKIP_REASONS = [
   ["not_interested", "Not interested"],
@@ -101,7 +103,53 @@ export default function MatchFeed() {
   const [skipReason, setSkipReason] = useState("not_interested");
   const [skipText, setSkipText] = useState("");
   const [queued, setQueued] = useState<string[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [selectedJob, setSelectedJob] = useState<JobDetail | null>(null);
+  const [loadingJobId, setLoadingJobId] = useState("");
+  const [jobError, setJobError] = useState("");
   const viewedIds = useRef(new Set<string>());
+  const jobCache = useRef(new Map<string, JobDetail>());
+  const selectedJobIdRef = useRef("");
+  const jobRequestId = useRef(0);
+
+  const loadJob = useCallback((jobId: string, force = false) => {
+    const requestId = ++jobRequestId.current;
+    selectedJobIdRef.current = jobId;
+    setSelectedJobId(jobId);
+
+    if (!jobId) {
+      setSelectedJob(null);
+      setLoadingJobId("");
+      setJobError("");
+      return;
+    }
+
+    const cached = jobCache.current.get(jobId);
+    if (cached && !force) {
+      setSelectedJob(cached);
+      setLoadingJobId("");
+      setJobError("");
+      return;
+    }
+
+    setSelectedJob(null);
+    setLoadingJobId(jobId);
+    setJobError("");
+    fetchJob(jobId)
+      .then((job) => {
+        jobCache.current.set(jobId, job);
+        if (jobRequestId.current === requestId) setSelectedJob(job);
+      })
+      .catch((reason: unknown) => {
+        if (jobRequestId.current !== requestId) return;
+        setJobError(
+          reason instanceof Error ? reason.message : "Unable to load the job description.",
+        );
+      })
+      .finally(() => {
+        if (jobRequestId.current === requestId) setLoadingJobId("");
+      });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -132,6 +180,11 @@ export default function MatchFeed() {
       .then((rows) => {
         if (!active) return;
         setMatches(rows);
+        const current = selectedJobIdRef.current;
+        const nextJobId = rows.some((match) => match.job_id === current)
+          ? current
+          : (rows[0]?.job_id ?? "");
+        loadJob(nextJobId);
         setError("");
         setLoadedMatchKey(matchKey);
       })
@@ -143,7 +196,7 @@ export default function MatchFeed() {
     return () => {
       active = false;
     };
-  }, [matchKey, userId]);
+  }, [loadJob, matchKey, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -170,6 +223,17 @@ export default function MatchFeed() {
           : match,
       ),
     );
+  };
+
+  const selectJob = (jobId: string) => {
+    loadJob(jobId);
+    if (window.matchMedia("(max-width: 850px)").matches) {
+      requestAnimationFrame(() => {
+        document
+          .getElementById("match-job-description")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
   };
 
   const submitEvent = async (
@@ -264,6 +328,8 @@ export default function MatchFeed() {
   };
 
   const noUserSelected = !loadingUsers && users.length > 1 && !userId;
+  const selectedMatch =
+    matches.find((match) => match.job_id === selectedJobId) ?? null;
 
   return (
     <main className={styles.shell}>
@@ -356,9 +422,26 @@ export default function MatchFeed() {
           </div>
         </div>
       ) : (
-        <div className={styles.matchList}>
-          {matches.map((match) => (
-            <article className={styles.matchCard} key={match.id}>
+        <div className={styles.matchWorkspace}>
+          <div className={styles.matchColumn}>
+            <div className={styles.matchList}>
+              {matches.map((match) => (
+                <article
+                  className={`${styles.matchCard} ${
+                    match.job_id === selectedJobId ? styles.selectedMatchCard : ""
+                  }`}
+                  key={match.id}
+                  onClick={(event) => {
+                    if (
+                      (event.target as HTMLElement).closest(
+                        "button, a, input, select, textarea",
+                      )
+                    ) {
+                      return;
+                    }
+                    selectJob(match.job_id);
+                  }}
+                >
               <div>
                 <div className={styles.matchTopline}>
                   <span
@@ -384,12 +467,24 @@ export default function MatchFeed() {
                   <span>·</span>
                   <span>{formatComp(match.comp_min, match.comp_max)}</span>
                 </div>
-                <h2 className={styles.matchTitle}>
-                  {match.title || "Untitled role"}
-                </h2>
-                <p className={styles.companyLine}>
-                  {match.company || "Company not listed"}
-                </p>
+                <button
+                  aria-pressed={match.job_id === selectedJobId}
+                  className={styles.matchHeadingButton}
+                  onClick={() => selectJob(match.job_id)}
+                  type="button"
+                >
+                  <span className={styles.matchTitle}>
+                    {match.title || "Untitled role"}
+                  </span>
+                  <span className={styles.companyLine}>
+                    {match.company || "Company not listed"}
+                  </span>
+                  <span className={styles.viewDescription}>
+                    {match.job_id === selectedJobId
+                      ? "Viewing description"
+                      : "View description →"}
+                  </span>
+                </button>
 
                 <div className={styles.skillRows}>
                   <div className={styles.skillRow}>
@@ -527,8 +622,21 @@ export default function MatchFeed() {
                   </button>
                 </div>
               )}
-            </article>
-          ))}
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <JobDescriptionViewer
+            emptyDescription="Choose a role to read its full job description here."
+            emptyTitle="Select a match"
+            error={jobError}
+            job={selectedJob?.id === selectedJobId ? selectedJob : null}
+            loading={loadingJobId === selectedJobId}
+            onRetry={() => loadJob(selectedJobId, true)}
+            panelId="match-job-description"
+            summary={selectedMatch}
+          />
         </div>
       )}
 

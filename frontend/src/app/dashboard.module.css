@@ -144,6 +144,17 @@
   font-size: 13px;
 }
 
+.matchWorkspace {
+  display: grid;
+  grid-template-columns: minmax(400px, 0.9fr) minmax(0, 1.1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.matchColumn {
+  min-width: 0;
+}
+
 .matchList {
   display: grid;
   gap: 16px;
@@ -161,14 +172,44 @@
   transition: transform 160ms, box-shadow 160ms, border-color 160ms;
 }
 
+.matchColumn .matchCard {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 21px;
+  cursor: pointer;
+}
+
 .matchCard:hover {
   transform: translateY(-2px);
   border-color: #c7d5cd;
   box-shadow: var(--shadow);
 }
 
+.selectedMatchCard {
+  border-color: #8eb9a6;
+  background: #fbfefc;
+  box-shadow: 0 0 0 2px rgba(23, 107, 77, 0.09);
+}
+
+.matchHeadingButton {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.matchHeadingButton:focus-visible {
+  border-radius: 7px;
+  outline: 3px solid rgba(23, 107, 77, 0.22);
+  outline-offset: 4px;
+}
+
 .matchTopline {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   margin-bottom: 8px;
@@ -217,6 +258,7 @@
 }
 
 .matchTitle {
+  display: block;
   margin-bottom: 5px;
   font-size: 23px;
   font-weight: 680;
@@ -224,8 +266,17 @@
 }
 
 .companyLine {
+  display: block;
   color: var(--muted);
   font-size: 14px;
+}
+
+.viewDescription {
+  display: block;
+  margin-top: 9px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .skillRows {
@@ -308,6 +359,25 @@
   gap: 8px;
   padding-left: 24px;
   border-left: 1px solid var(--line);
+}
+
+.matchColumn .cardActions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  padding-top: 18px;
+  padding-left: 0;
+  border-top: 1px solid var(--line);
+  border-left: 0;
+}
+
+.matchColumn .cardActions > .button {
+  flex: 1 1 145px;
+}
+
+.matchColumn .cardActions > .buttonRow,
+.matchColumn .cardActions > .statusNote {
+  flex: 1 1 100%;
 }
 
 .button {
@@ -394,6 +464,95 @@
   margin-top: -8px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
+}
+
+.matchColumn .skipForm {
+  grid-template-columns: 1fr;
+  margin-top: 0;
+}
+
+.jobViewer {
+  position: sticky;
+  top: 88px;
+  display: flex;
+  min-width: 0;
+  min-height: 540px;
+  max-height: calc(100vh - 108px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.jobViewerHeader {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfdfb;
+}
+
+.jobViewerHeader h2 {
+  font-size: 24px;
+  letter-spacing: -0.035em;
+}
+
+.jobViewerMeta {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.jobViewerLink {
+  flex: 0 0 auto;
+  padding-top: 2px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.jobViewerLink:hover {
+  text-decoration: underline;
+}
+
+.jobViewerBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 26px 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.jobViewerState {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 260px;
+  place-content: center;
+  padding: 32px;
+  text-align: center;
+}
+
+.jobViewerState h2,
+.jobViewerState h3 {
+  margin-bottom: 8px;
+  letter-spacing: -0.025em;
+}
+
+.jobViewerState p {
+  max-width: 390px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.jobViewerState .button {
+  width: fit-content;
+  margin: 18px auto 0;
 }
 
 .emptyState,
@@ -1074,6 +1233,26 @@
     grid-template-columns: 1fr;
   }
 
+  .matchWorkspace {
+    grid-template-columns: 1fr;
+  }
+
+  .jobViewer {
+    position: static;
+    grid-row: 1;
+    min-height: 440px;
+    max-height: none;
+    scroll-margin-top: 84px;
+  }
+
+  .jobViewerBody {
+    max-height: 70vh;
+  }
+
+  .matchColumn {
+    grid-row: 2;
+  }
+
   .cardActions {
     padding-top: 18px;
     padding-left: 0;
@@ -1123,6 +1302,15 @@
 
   .matchCard {
     padding: 19px;
+  }
+
+  .jobViewerHeader {
+    flex-direction: column;
+    padding: 19px;
+  }
+
+  .jobViewerBody {
+    padding: 21px 19px;
   }
 
   .skillRow {

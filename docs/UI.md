@@ -121,6 +121,8 @@ The primary logged-in surface.
 
 One ordered list, best matches first. Per match: title, company, location, comp, match score, **qualification label**, **matched skills**, **missing skills**, and the screen's stated reason. Unscreened matches (below the score floor, or still in flight) appear below screened ones.
 
+In the local UI, this is a two-column workspace: ranked match cards on the left and the selected job's full description on the right (stacked responsively on narrow screens). The list payload stays lean; selecting a card fetches `GET /api/jobs/{job_id}` on demand. The viewer prefers the stored, sanitized `raw_jd_html` and falls back to stripped `raw_jd` for legacy or plain-text-only rows. This logged-in/local surface may also link to the original posting; the metadata-only restriction still applies to future unauthenticated public search.
+
 **Actions — each writes to** `pipeline_events`**:**
 
 | Action | Why it matters |
@@ -251,7 +253,7 @@ Read endpoints (thin queries over existing models):
 | `GET /api/profile?user_id=` | profile + filters + resolved `skills` labels (same base shape as `jobmatch profile show`) |
 | `GET /api/matches?user_id=` | single ranked list: match cards with job metadata, skill buckets as `{id, label}`, `qualification_label` / `screen_reason`, latest UI state. Ordered by label tier then `rerank_score`. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones) |
 | `GET /api/jobs?q=` | local keyword search (`ILIKE` on title, company name, location). Empty `q` returns recent jobs (`posted_at DESC`, cap 50). Card fields only: id, title, company, location, comp, posted date, `extracted_at`. No LLM calls. |
-| `GET /api/jobs/{id}` | local job detail: same metadata plus `url`, `raw_jd`, sanitized `raw_jd_html` (nullable; display-only), and extracted fields (`seniority`, `hard_requirements`, `nice_to_haves`) when present |
+| `GET /api/jobs/{id}` | local job detail used by job pages and the match-feed viewer: same metadata plus `url`, `raw_jd`, sanitized `raw_jd_html` (nullable; display-only), and extracted fields (`seniority`, `hard_requirements`, `nice_to_haves`) when present |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
 | `GET /api/admin/metrics` | funnel counts, extraction coverage %, label distribution, LLM spend |
 
@@ -269,7 +271,7 @@ Resume upload stays CLI-only for this milestone.
 
 Authenticated public search is still future work (see "Free tier: public search" above). This milestone adds a **local, single-user** browse path that is a different surface:
 
-* `/jobs` — keyword search over the ingested corpus (title / company / location). An empty query lists recent jobs.
+* `/jobs` — keyword search over the ingested corpus (title / company / location). An empty query lists recent jobs. Results use the same two-column workspace as the match feed: compact cards on the left and the selected job's sanitized HTML description (or plain-text fallback) on the right. Job details are fetched on demand and cached for the session.
 * `/jobs/{id}` — sanitized `raw_jd_html` when present, otherwise the plain-text `raw_jd` fallback (pre-change rows), plus a link out to the original posting.
 
 This is a debugging and corpus-inspection tool for the PoC, not the conversion funnel. It **does** show JD text and the outbound URL because there is no unauthenticated public traffic. The future public search remains metadata-only, with no JD body and no outbound link, until signup.

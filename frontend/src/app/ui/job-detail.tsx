@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import styles from "@/app/dashboard.module.css";
+import JobDescriptionBody from "@/app/ui/job-description-body";
 import type { JobDetail as JobDetailPayload } from "@/lib/types";
 
 function formatComp(min: number | null, max: number | null) {
@@ -57,16 +58,7 @@ export default function JobDetail({ job }: { job: JobDetailPayload }) {
 
       <div className={styles.handoffGrid}>
         <article className={styles.resumePaper}>
-          {job.raw_jd_html ? (
-            <div
-              className={styles.jobDescriptionHtml}
-              dangerouslySetInnerHTML={{ __html: job.raw_jd_html }}
-            />
-          ) : (
-            <div className={styles.resumeDocument}>
-              {job.raw_jd || "No job description was stored for this posting."}
-            </div>
-          )}
+          <JobDescriptionBody html={job.raw_jd_html} text={job.raw_jd} />
         </article>
 
         <aside className={styles.sideStack}>
