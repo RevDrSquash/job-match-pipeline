@@ -271,7 +271,7 @@ Resume upload stays CLI-only for this milestone.
 
 Authenticated public search is still future work (see "Free tier: public search" above). This milestone adds a **local, single-user** browse path that is a different surface:
 
-* `/jobs` — keyword search over the ingested corpus (title / company / location). An empty query lists recent jobs.
+* `/jobs` — keyword search over the ingested corpus (title / company / location). An empty query lists recent jobs. Results use the same two-column workspace as the match feed: compact cards on the left and the selected job's sanitized HTML description (or plain-text fallback) on the right. Job details are fetched on demand and cached for the session.
 * `/jobs/{id}` — sanitized `raw_jd_html` when present, otherwise the plain-text `raw_jd` fallback (pre-change rows), plus a link out to the original posting.
 
 This is a debugging and corpus-inspection tool for the PoC, not the conversion funnel. It **does** show JD text and the outbound URL because there is no unauthenticated public traffic. The future public search remains metadata-only, with no JD body and no outbound link, until signup.
