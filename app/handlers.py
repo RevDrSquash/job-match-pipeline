@@ -20,13 +20,14 @@ from pydantic import BaseModel, ConfigDict
 from app.config import Settings, get_settings
 from app.db.session import db_session
 from app.extract.embed import DocumentEmbedder
-from app.extract.llm import JobLLM, RetryableLLMError
+from app.extract.llm import JobLLM
 from app.extract.service import extract_job
 from app.generate.llm import GenerateLLM
 from app.generate.service import generate_resume
 from app.ingest.events import record_pipeline_event
 from app.ingest.fetch import fetch_link_list
 from app.ingest.store import ingest_posting
+from app.llm import RetryableLLMError
 from app.match.rerank import Reranker
 from app.match.service import match_batch
 from app.queue import BufferedTaskQueue, TaskQueue

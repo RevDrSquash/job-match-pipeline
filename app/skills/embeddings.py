@@ -20,12 +20,12 @@ import httpx
 
 from app.config import Settings, get_settings
 from app.db.models import EMBEDDING_DIM
-from app.extract.llm import (
+from app.extract.synthesize import estimate_tokens
+from app.llm import (
     DEFAULT_GEMINI_API_BASE,
     RetryableLLMError,
     classify_llm_status,
 )
-from app.extract.synthesize import estimate_tokens
 
 logger = logging.getLogger(__name__)
 

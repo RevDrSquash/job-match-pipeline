@@ -9,7 +9,7 @@ import pytest
 
 from app.config import Settings
 from app.db.models import EMBEDDING_DIM
-from app.extract.llm import RetryableLLMError
+from app.llm import RetryableLLMError
 from app.skills.embeddings import (
     DEFAULT_SPAN_EMBEDDING_MODEL,
     SPAN_EMBEDDING_TASK_TYPE,

@@ -6,25 +6,25 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import patch
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.exceptions import ModelRateLimitError
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.generate.llm import GENERATION_SYSTEM_PROMPT, GeminiGenerateLLM, build_job_context
 from app.generate.schema import Claim, GeneratedResume
 from app.generate.service import generate_resume
+from app.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.main import create_app
 from app.queue import LocalTaskQueue
 from app.skills.linker import InMemorySkillLinker, SkillRecord
 from tests.conftest import requires_db
+from tests.llm_fakes import FakeStructuredChat
 
 PYTHON_ID = "esco:python"
 AWS_ID = "esco:aws"
@@ -190,50 +190,39 @@ def test_generation_prompt_names_gaps_and_forbids_find_replace() -> None:
 
 
 def test_gemini_generate_sends_cache_prefix_and_usage() -> None:
-    payload = {
-        "candidates": [{"content": {"parts": [{"text": CLEAN_RESUME.model_dump_json()}]}}],
-        "usageMetadata": {"promptTokenCount": 800, "candidatesTokenCount": 200},
-    }
-    response = httpx.Response(
-        200,
-        json=payload,
-        request=httpx.Request("POST", "https://example.test/generate"),
+    fake = FakeStructuredChat([CLEAN_RESUME], input_tokens=800, output_tokens=200)
+    client = GeminiGenerateLLM(
+        api_key="test-key",
+        model="gemini-3.5-pro",
+        chat_model=fake,
     )
-    captured: dict[str, Any] = {}
-
-    def _post(url: str, **kwargs: Any) -> httpx.Response:
-        captured["url"] = url
-        captured["json"] = kwargs.get("json")
-        return response
-
-    client = GeminiGenerateLLM(api_key="test-key", model="gemini-3.5-pro")
-    with patch("app.generate.llm.httpx.post", side_effect=_post):
-        resume, usage = client.generate(
-            cache_prefix="CACHED_WORK_HISTORY_BEGIN\nEmployer: Prior Co\n",
-            job_context="Job title: Backend\n",
-            cache_key=None,
-        )
+    resume, usage = client.generate(
+        cache_prefix="CACHED_WORK_HISTORY_BEGIN\nEmployer: Prior Co\n",
+        job_context="Job title: Backend\n",
+        cache_key=None,
+    )
     assert resume.employers == ["Prior Co"]
     assert usage.prompt_tokens == 800
     assert usage.model == "gemini-3.5-pro"
-    parts = captured["json"]["contents"][0]["parts"]
+    user = fake.calls[0][1]
+    parts = user["content"]
     assert parts[0]["text"].startswith("CACHED_WORK_HISTORY_BEGIN")
     assert "Job title: Backend" in parts[1]["text"]
 
 
 def test_gemini_generate_error_omits_resume_text() -> None:
-    response = httpx.Response(
-        429,
-        text="rate limited: SECRET_RESUME_TEXT",
-        request=httpx.Request("POST", "https://example.test/generate"),
+    client = GeminiGenerateLLM(
+        api_key="test-key",
+        model="gemini-3.5-pro",
+        chat_model=FakeStructuredChat(
+            [ModelRateLimitError("rate limited: SECRET_RESUME_TEXT")]
+        ),
     )
-    client = GeminiGenerateLLM(api_key="test-key", model="gemini-3.5-pro")
-    with patch("app.generate.llm.httpx.post", return_value=response):
-        with pytest.raises(RetryableLLMError, match="generate llm retryable failure") as exc:
-            client.generate(
-                cache_prefix="history SECRET_RESUME_TEXT",
-                job_context="jd",
-            )
+    with pytest.raises(RetryableLLMError, match="generate llm retryable failure") as exc:
+        client.generate(
+            cache_prefix="history SECRET_RESUME_TEXT",
+            job_context="jd",
+        )
     assert "SECRET_RESUME_TEXT" not in str(exc.value)
 
 

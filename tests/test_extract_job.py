@@ -10,6 +10,14 @@ from unittest.mock import patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.exceptions import (
+    ModelAuthenticationError,
+    ModelInvalidRequestError,
+    ModelNotFoundError,
+    ModelPermissionDeniedError,
+    ModelRateLimitError,
+    OutputParserException,
+)
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -17,24 +25,19 @@ from app.config import Settings
 from app.db.models import EMBEDDING_DIM, Job, PipelineEvent, Skill
 from app.db.session import get_engine
 from app.extract.embed import GeminiDocumentEmbedder, HashingDocumentEmbedder
-from app.extract.llm import (
-    EXTRACTION_SYSTEM_PROMPT,
-    GeminiJobLLM,
-    JobExtraction,
-    LLMUsage,
-    PermanentLLMError,
-    RetryableLLMError,
-)
+from app.extract.llm import EXTRACTION_SYSTEM_PROMPT, GeminiJobLLM, JobExtraction
 from app.extract.service import extract_job
 from app.extract.synthesize import (
     SYNTH_DOC_MAX_TOKENS,
     build_synthesized_doc,
     estimate_tokens,
 )
+from app.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.main import create_app
 from app.queue import LocalTaskQueue
 from app.skills import HashingEmbedder, InMemorySkillLinker, SkillRecord
 from tests.conftest import requires_db
+from tests.llm_fakes import FakeStructuredChat
 from tests.test_skill_linking import AWS_ID, K8S_ID, PYTHON_ID
 
 FIXTURE_JD = Path("tests/fixtures/sample_jd.txt").read_text(encoding="utf-8")
@@ -184,28 +187,15 @@ def test_job_extraction_ignores_unknown_keys() -> None:
 
 
 def test_gemini_llm_parses_usage_and_json() -> None:
-    payload = {
-        "candidates": [
-            {
-                "content": {
-                    "parts": [
-                        {
-                            "text": SAMPLE_EXTRACTION.model_dump_json(),
-                        }
-                    ]
-                }
-            }
-        ],
-        "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 120},
-    }
-    response = httpx.Response(
-        200,
-        json=payload,
-        request=httpx.Request("POST", "https://example.test/generate"),
+    fake = FakeStructuredChat(
+        [SAMPLE_EXTRACTION], input_tokens=900, output_tokens=120
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", return_value=response):
-        extraction, usage = client.extract_job(FIXTURE_JD, title="Senior Backend Engineer")
+    client = GeminiJobLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=fake,
+    )
+    extraction, usage = client.extract_job(FIXTURE_JD, title="Senior Backend Engineer")
     assert extraction.seniority == "senior"
     assert usage.prompt_tokens == 900
     assert usage.completion_tokens == 120
@@ -214,81 +204,73 @@ def test_gemini_llm_parses_usage_and_json() -> None:
 
 
 def test_gemini_llm_429_is_retryable() -> None:
-    response = httpx.Response(
-        429,
-        request=httpx.Request("POST", "https://example.test/generate"),
+    client = GeminiJobLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=FakeStructuredChat([ModelRateLimitError("limited")]),
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", return_value=response):
-        with pytest.raises(RetryableLLMError):
-            client.extract_job(FIXTURE_JD)
+    with pytest.raises(RetryableLLMError):
+        client.extract_job(FIXTURE_JD)
 
 
 def test_gemini_llm_400_is_permanent_poison_message() -> None:
     """A request-level 400 retried via the queue returns the same answer every
     time — classify permanent so the handler responds 2xx and stops the burn."""
-    response = httpx.Response(
-        400,
-        request=httpx.Request("POST", "https://example.test/generate"),
+    fake = FakeStructuredChat([ModelInvalidRequestError("bad request")])
+    client = GeminiJobLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=fake,
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", return_value=response) as mock_post:
-        with pytest.raises(PermanentLLMError):
-            client.extract_job(FIXTURE_JD)
-    assert mock_post.call_count == 1  # no in-process retry for a poison request
+    with pytest.raises(PermanentLLMError):
+        client.extract_job(FIXTURE_JD)
+    assert fake.invoke_count == 1  # no in-process retry for a poison request
 
 
 def test_gemini_llm_config_statuses_stay_retryable() -> None:
     """401/403/404 are operator config errors (bad key / model name): they
     affect every task and bill nothing, so the task must survive retries."""
-    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    for status in (401, 403, 404):
-        response = httpx.Response(
-            status,
-            request=httpx.Request("POST", "https://example.test/generate"),
+    for exc in (
+        ModelAuthenticationError("bad key"),
+        ModelPermissionDeniedError("denied"),
+        ModelNotFoundError("missing model"),
+    ):
+        client = GeminiJobLLM(
+            api_key="test-key",
+            model="gemini-3.5-flash-lite",
+            chat_model=FakeStructuredChat([exc]),
         )
-        with patch("app.extract.llm.httpx.post", return_value=response):
-            with pytest.raises(RetryableLLMError):
-                client.extract_job(FIXTURE_JD)
-
-
-def _gemini_payload(text: str) -> dict:
-    return {
-        "candidates": [{"content": {"parts": [{"text": text}]}}],
-        "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 120},
-    }
+        with pytest.raises(RetryableLLMError):
+            client.extract_job(FIXTURE_JD)
 
 
 def test_gemini_llm_malformed_output_retried_once_then_permanent() -> None:
     """A billed-but-malformed completion gets one in-process retry, then goes
     permanent — never back to the queue at full price per redelivery."""
-    bad = httpx.Response(
-        200,
-        json=_gemini_payload("this is not json"),
-        request=httpx.Request("POST", "https://example.test/generate"),
+    fake = FakeStructuredChat([None, None])
+    client = GeminiJobLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=fake,
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", return_value=bad) as mock_post:
-        with pytest.raises(PermanentLLMError):
-            client.extract_job(FIXTURE_JD)
-    assert mock_post.call_count == 2
+    with pytest.raises(PermanentLLMError):
+        client.extract_job(FIXTURE_JD)
+    assert fake.invoke_count == 2
 
 
 def test_gemini_llm_malformed_then_good_succeeds() -> None:
-    bad = httpx.Response(
-        200,
-        json=_gemini_payload("this is not json"),
-        request=httpx.Request("POST", "https://example.test/generate"),
+    fake = FakeStructuredChat(
+        [OutputParserException("bad json"), SAMPLE_EXTRACTION],
+        input_tokens=900,
+        output_tokens=120,
     )
-    good = httpx.Response(
-        200,
-        json=_gemini_payload(SAMPLE_EXTRACTION.model_dump_json()),
-        request=httpx.Request("POST", "https://example.test/generate"),
+    client = GeminiJobLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=fake,
     )
-    client = GeminiJobLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", side_effect=[bad, good]) as mock_post:
-        extraction, usage = client.extract_job(FIXTURE_JD)
-    assert mock_post.call_count == 2
+    extraction, usage = client.extract_job(FIXTURE_JD)
+    assert fake.invoke_count == 2
     assert extraction.seniority == "senior"
     assert usage.prompt_tokens == 900
 

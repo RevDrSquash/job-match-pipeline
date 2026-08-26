@@ -15,15 +15,10 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import Job, Skill
 from app.extract.embed import DocumentEmbedder, log_embedding_usage
-from app.extract.llm import (
-    MIN_RAW_JD_CHARS,
-    JobLLM,
-    PermanentLLMError,
-    RetryableLLMError,
-    log_llm_usage,
-)
+from app.extract.llm import MIN_RAW_JD_CHARS, JobLLM, log_llm_usage
 from app.extract.synthesize import build_synthesized_doc
 from app.ingest.events import record_pipeline_event, usage_details
+from app.llm import PermanentLLMError, RetryableLLMError
 from app.skills.factory import linker_from_session
 from app.skills.linker import InMemorySkillLinker, SkillLinker, SpanLinkReport
 

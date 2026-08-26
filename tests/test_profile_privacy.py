@@ -7,20 +7,14 @@ import logging
 
 import httpx
 import pytest
+from langchain_core.exceptions import ModelInvalidRequestError
 
 from app.privacy import PrivacySafeError, input_kind, safe_exc
 from app.profile.llm import GeminiProfileLLM, log_llm_usage
 from app.profile.parse import LlmResumeParser, parse_llm_json
+from tests.llm_fakes import FakeStructuredChat
 
 SECRET = "SECRET_EMPLOYER_ZYX987"
-
-
-def _client() -> GeminiProfileLLM:
-    return GeminiProfileLLM(
-        api_key="test-key",
-        model="gemini-3.5-flash-lite",
-        api_base="https://example.invalid/v1beta",
-    )
 
 
 def test_safe_exc_drops_original_args() -> None:
@@ -45,7 +39,7 @@ def test_invalid_llm_json_error_omits_payload(caplog: pytest.LogCaptureFixture) 
 
 
 def test_llm_usage_log_has_no_prompt_text(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.INFO, logger="app.profile.llm")
     log_llm_usage(
         purpose="profile_parse",
         model="gemini-3.5-flash-lite",
@@ -58,35 +52,34 @@ def test_llm_usage_log_has_no_prompt_text(caplog: pytest.LogCaptureFixture) -> N
 
 
 def test_gemini_client_http_error_is_privacy_safe(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG)
-
-    def _boom(*_args: object, **_kwargs: object) -> None:
-        raise httpx.ConnectError(f"upstream saw {SECRET}")
-
-    monkeypatch.setattr(httpx.Client, "post", _boom)
-    parser = LlmResumeParser(_client())
+    client = GeminiProfileLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        api_base="https://example.invalid/v1beta",
+        chat_model=FakeStructuredChat([httpx.ConnectError(f"upstream saw {SECRET}")]),
+    )
+    parser = LlmResumeParser(client)
     with pytest.raises(PrivacySafeError) as exc_info:
         parser.parse(f"Worked at {SECRET}")
     assert SECRET not in str(exc_info.value)
     assert SECRET not in caplog.text
 
 
-def test_gemini_client_error_body_not_logged(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_gemini_client_error_body_not_logged(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)
-
-    class _Resp:
-        status_code = 400
-
-        def json(self) -> dict:
-            return {"error": {"message": f"bad prompt mentioning {SECRET}"}}
-
-    monkeypatch.setattr(httpx.Client, "post", lambda *a, **k: _Resp())
+    client = GeminiProfileLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        api_base="https://example.invalid/v1beta",
+        chat_model=FakeStructuredChat(
+            [ModelInvalidRequestError(f"bad prompt mentioning {SECRET}")]
+        ),
+    )
     with pytest.raises(PrivacySafeError) as exc_info:
-        _client().complete_json(system="s", user=f"resume {SECRET}", purpose="profile_parse")
+        client.complete_json(system="s", user=f"resume {SECRET}", purpose="profile_parse")
     assert SECRET not in str(exc_info.value)
     assert SECRET not in caplog.text
 

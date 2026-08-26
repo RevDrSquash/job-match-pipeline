@@ -5,20 +5,19 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Any
-from unittest.mock import patch
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.exceptions import ModelAPIError
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.generate.schema import GeneratedResume
 from app.generate.service import generate_resume
+from app.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.main import create_app
 from app.queue import LocalTaskQueue
 from app.verify.llm import (
@@ -29,6 +28,7 @@ from app.verify.llm import (
 )
 from app.verify.service import verify_resume
 from tests.conftest import requires_db
+from tests.llm_fakes import FakeStructuredChat
 from tests.test_generate_resume import (
     CLEAN_RESUME,
     RecordingQueue,
@@ -137,53 +137,39 @@ def test_grounding_prompt_is_jd_blind_and_separate_from_coverage() -> None:
 
 
 def test_anthropic_verify_parses_usage_and_json() -> None:
-    body = {
-        "content": [{"type": "text", "text": PASS.model_dump_json()}],
-        "usage": {"input_tokens": 90, "output_tokens": 20},
-    }
-    response = httpx.Response(
-        200,
-        json=body,
-        request=httpx.Request("POST", "https://example.test/messages"),
+    fake = FakeStructuredChat([PASS], input_tokens=90, output_tokens=20)
+    client = AnthropicVerifyLLM(
+        api_key="test-key",
+        model="claude-sonnet-4-5",
+        chat_model=fake,
     )
-    captured: dict[str, Any] = {}
-
-    def _post(url: str, **kwargs: Any) -> httpx.Response:
-        captured["url"] = url
-        captured["json"] = kwargs.get("json")
-        captured["headers"] = kwargs.get("headers")
-        return response
-
-    client = AnthropicVerifyLLM(api_key="test-key", model="claude-sonnet-4-5")
-    with patch("app.verify.llm.httpx.post", side_effect=_post):
-        decision, usage = client.ground(
-            resume_doc="resume", work_history_block="history"
-        )
+    decision, usage = client.ground(
+        resume_doc="resume", work_history_block="history"
+    )
     assert decision.verdict == "pass"
     assert usage.prompt_tokens == 90
     assert usage.model == "claude-sonnet-4-5"
-    assert captured["url"].endswith("/v1/messages")
-    assert captured["headers"]["x-api-key"] == "test-key"
-    system = captured["json"]["system"]
+    messages = fake.calls[0]
+    system = messages[0]["content"]
     assert "job description" in system.lower()
-    user = captured["json"]["messages"][0]["content"]
+    user = messages[1]["content"]
     assert "Generated resume" in user
     assert "Work history" in user
 
 
 def test_anthropic_error_omits_resume_text() -> None:
-    response = httpx.Response(
-        500,
-        text="upstream saw SECRET_RESUME_TEXT",
-        request=httpx.Request("POST", "https://example.test/messages"),
+    client = AnthropicVerifyLLM(
+        api_key="test-key",
+        model="claude-sonnet-4-5",
+        chat_model=FakeStructuredChat(
+            [ModelAPIError("upstream saw SECRET_RESUME_TEXT")]
+        ),
     )
-    client = AnthropicVerifyLLM(api_key="test-key", model="claude-sonnet-4-5")
-    with patch("app.verify.llm.httpx.post", return_value=response):
-        with pytest.raises(RetryableLLMError) as exc:
-            client.ground(
-                resume_doc="SECRET_RESUME_TEXT",
-                work_history_block="history",
-            )
+    with pytest.raises(RetryableLLMError) as exc:
+        client.ground(
+            resume_doc="SECRET_RESUME_TEXT",
+            work_history_block="history",
+        )
     assert "SECRET_RESUME_TEXT" not in str(exc.value)
 
 
@@ -308,7 +294,11 @@ def test_regenerate_once_then_flag(db_session: Session) -> None:
     actions = [
         e.action
         for e in db_session.scalars(
-            select(PipelineEvent).where(PipelineEvent.stage == "verify-resume")
+            select(PipelineEvent).where(
+                PipelineEvent.stage == "verify-resume",
+                PipelineEvent.user_id == user.id,
+                PipelineEvent.job_id == job.id,
+            )
         ).all()
     ]
     assert actions.count("regenerate_enqueued") == 1

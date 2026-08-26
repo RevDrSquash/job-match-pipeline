@@ -13,7 +13,7 @@ Why it matters: at $0.005/call the gate costs ~$15/user/mo, which breaks the "sc
 
 The architectural decisions (separate gate call, gate placement before generation) hold under either figure, so the PoC is unaffected. **Resolution:** measure real token counts and cost per gate call during the PoC — already listed as an open cost question — then correct whichever doc is wrong.
 
-**PoC instrumentation (DEF-22):** `screen-job` now logs `prompt_tokens` / `completion_tokens` / `cost_usd` on every gate call (`GATE_MODEL`, default `gemini-3.5-flash-lite`) and persists the same fields on `pipeline_events.details`.
+**PoC instrumentation (DEF-22):** `screen-job` now logs `prompt_tokens` / `completion_tokens` / `cost_usd` on every gate call (`GATE_MODEL`, default `gemini-3.5-flash-lite`) and persists the same fields on `pipeline_events.details`. Token counts come from LangChain `AIMessage.usage_metadata` (`input_tokens` / `output_tokens`) via `app/llm/usage.py`; estimated USD still uses the per-stage rates in `app/config.py`.
 
 **Resolution path (DEF-25):** `jobmatch poc run` writes the measured distribution to [`docs/POC_RESULTS.md`](POC_RESULTS.md) and this section is updated from that live `EMBEDDING_PROVIDER=gemini` run — not from a single fixture call. Until that report has a non-zero `screen-job` `n`, both docs stay as estimates.
 
@@ -133,7 +133,7 @@ Docs require a **different model family** for verify stages 2–3 than the gener
 
 * **Generator:** `GENERATION_MODEL` default `gemini-3.1-pro-preview` (same `LLM_API_KEY` / `LLM_API_BASE` as extract/profile). Best-available Gemini pro tier the API actually serves — `gemini-3.5-pro` does not exist as of Aug 2026 (the 3.5 family tops out at flash). Note: free-tier API keys have zero quota for pro-tier models (429 `limit: 0`) and `gemini-2.5-pro` is closed to new users (404); on a free-tier key set `GENERATION_MODEL=gemini-3.5-flash`, the best model such keys can call. Free-tier `gemini-3.5-flash` is capped at 20 generate requests (metric `generate_content_free_tier_requests`, observed Aug 2026) — one fabrication-suite run costs 5, so budget roughly two full eval runs plus one small pipeline drain per day, or use a paid key for measurement runs. Generation pricing config (`generation_*_usd_per_mtok`) reflects pro-tier list prices and overstates flash costs. ZDR/no-training terms are a production blocker (privacy doc). Work-history prompt caching uses Gemini `cachedContents` when the prefix is long enough, otherwise an implicit identical prefix.
 * **Verifier:** `VERIFY_MODEL` default `claude-sonnet-4-5` (`VERIFY_API_KEY` or `ANTHROPIC_API_KEY`, `VERIFY_API_BASE`). Anthropic is a different family, which is the load-bearing requirement. ZDR paperwork is equally deferred — do not send real resumes until those terms exist.
-* Token/cost rates live in `app/config.py` and are logged on every call (`OPEN_ISSUES.md` §1). Defaults are list-price placeholders, not measured.
+* Token/cost rates live in `app/config.py` and are logged on every call (`OPEN_ISSUES.md` §1). Defaults are list-price placeholders, not measured. Completion transport is LangChain (`app/llm/`); verify stages 2–3 use `ChatAnthropic.with_structured_output` (tool-calling under the hood), which is stricter than the previous free-form JSON parse.
 
 Self-verification within Gemini is intentionally not offered as a fallback: a missing Anthropic key is a retryable config error, not a silent downgrade to the generator family.
 

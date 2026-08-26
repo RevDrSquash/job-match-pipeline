@@ -10,7 +10,8 @@ from app.extract.embed import (
     GeminiDocumentEmbedder,
     HashingDocumentEmbedder,
 )
-from app.extract.llm import GeminiJobLLM, JobLLM, RetryableLLMError
+from app.extract.llm import GeminiJobLLM, JobLLM
+from app.llm import RetryableLLMError
 
 
 def _api_key(settings: Settings) -> str:

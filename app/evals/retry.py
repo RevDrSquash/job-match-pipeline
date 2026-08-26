@@ -12,7 +12,7 @@ import logging
 import time
 from collections.abc import Callable
 
-from app.extract.llm import RetryableLLMError
+from app.llm import RetryableLLMError
 
 logger = logging.getLogger(__name__)
 

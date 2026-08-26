@@ -16,10 +16,15 @@ import logging
 from dataclasses import dataclass
 from typing import Protocol
 
-import httpx
-
 from app.config import Settings
-from app.privacy import PrivacySafeError, safe_exc
+from app.llm import (
+    PermanentLLMError,
+    RetryableLLMError,
+    build_gemini_chat,
+    structured_call,
+)
+from app.privacy import PrivacySafeError
+from app.profile.schema import LlmParsePayload
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +61,7 @@ class LlmClient(Protocol):
 
 
 class GeminiProfileLLM:
-    """JSON completion via Gemini ``generateContent`` (same API as extract-job).
+    """JSON completion via Gemini structured output (same key as extract-job).
 
     Errors are always re-raised as PrivacySafeError: response bodies and
     upstream exception args may echo resume text and must never surface.
@@ -71,15 +76,19 @@ class GeminiProfileLLM:
         input_usd_per_mtok: float = 0.10,
         output_usd_per_mtok: float = 0.40,
         timeout_s: float = 60.0,
+        chat_model: object | None = None,
     ) -> None:
-        if not api_key:
+        if chat_model is None and not api_key:
             raise PrivacySafeError("LLM_API_KEY is not set")
-        self._api_key = api_key
         self._model = model
-        self._api_base = api_base.rstrip("/")
         self._input_usd_per_mtok = input_usd_per_mtok
         self._output_usd_per_mtok = output_usd_per_mtok
-        self._timeout_s = timeout_s
+        self._chat = chat_model or build_gemini_chat(
+            api_key=api_key,
+            model=model,
+            api_base=api_base,
+            timeout=timeout_s,
+        )
 
     @classmethod
     def from_settings(cls, settings: Settings, *, api_key: str) -> GeminiProfileLLM:
@@ -92,62 +101,32 @@ class GeminiProfileLLM:
         )
 
     def complete_json(self, *, system: str, user: str, purpose: str) -> LlmResult:
-        url = f"{self._api_base}/models/{self._model}:generateContent"
-        payload = {
-            "systemInstruction": {"parts": [{"text": system}]},
-            "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-            },
-        }
         try:
-            with httpx.Client(timeout=self._timeout_s) as client:
-                response = client.post(
-                    url,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": self._api_key,
-                    },
-                    json=payload,
-                )
-        except httpx.HTTPError as exc:
-            raise safe_exc("LLM request failed", exc) from None
-
-        if response.status_code >= 400:
-            # Never include the response body — error payloads can echo input.
-            raise PrivacySafeError(f"LLM request failed (HTTP {response.status_code})")
-
-        try:
-            body = response.json()
-            candidates = body.get("candidates") or []
-            parts = ((candidates[0].get("content") or {}).get("parts")) or []
-            text = "".join(str(part.get("text") or "") for part in parts)
-            usage = body.get("usageMetadata") or {}
-            input_tokens = int(usage.get("promptTokenCount") or 0)
-            output_tokens = int(usage.get("candidatesTokenCount") or 0)
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise safe_exc("LLM response missing content", exc) from None
-
-        if not text.strip():
-            raise PrivacySafeError("LLM response missing content")
-
-        cost = (input_tokens / 1_000_000) * self._input_usd_per_mtok + (
-            output_tokens / 1_000_000
-        ) * self._output_usd_per_mtok
+            parsed, usage = structured_call(
+                self._chat,
+                LlmParsePayload,
+                model_name=self._model,
+                input_usd_per_mtok=self._input_usd_per_mtok,
+                output_usd_per_mtok=self._output_usd_per_mtok,
+                system_prompt=system,
+                user_text=user,
+                provider="profile llm",
+            )
+        except (PermanentLLMError, RetryableLLMError) as exc:
+            raise PrivacySafeError(str(exc)) from None
         log_llm_usage(
             purpose=purpose,
-            model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=cost,
+            model=usage.model,
+            input_tokens=usage.prompt_tokens,
+            output_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
         )
         return LlmResult(
-            text=text,
-            model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=cost,
+            text=parsed.model_dump_json(),
+            model=usage.model,
+            input_tokens=usage.prompt_tokens,
+            output_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
         )
 
 

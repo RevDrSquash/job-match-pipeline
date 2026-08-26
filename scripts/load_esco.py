@@ -67,7 +67,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import db_session
-from app.extract.llm import RetryableLLMError
+from app.llm import RetryableLLMError
 from app.skills.embeddings import GeminiSpanEmbedder, build_span_embedder
 from app.skills.linker import SkillRecord
 from app.skills.normalize import normalize_label

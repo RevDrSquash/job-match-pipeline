@@ -7,21 +7,22 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.exceptions import ModelRateLimitError
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import Job, Match, PipelineEvent, User, UserProfile
 from app.db.session import get_engine
-from app.extract.llm import LLMUsage, PermanentLLMError, RetryableLLMError
+from app.llm import LLMUsage, PermanentLLMError, RetryableLLMError
 from app.main import create_app
 from app.queue import LocalTaskQueue
 from app.screen.llm import GATE_SYSTEM_PROMPT, GateDecision, GeminiGateLLM
 from app.screen.service import screen_job
 from tests.conftest import requires_db
+from tests.llm_fakes import FakeStructuredChat
 
 
 class RecordingQueue:
@@ -170,25 +171,20 @@ def test_gate_decision_normalizes_and_rejects_bad_label() -> None:
     ).normalized()
     assert parsed.label == "clearly_qualified"
     assert parsed.confidence == 1.0
-    # temperature=0 + enforced schema: a bad label is deterministic — retrying
-    # via the queue would pay for the same bad output, so it is permanent.
+    # A bad label despite the enforced schema is a poison payload — queue
+    # retries would re-bill with low odds of a different answer, so permanent.
     with pytest.raises(PermanentLLMError):
         GateDecision(label="maybe", reason="x", confidence=0.1).normalized()
 
 
 def test_gemini_gate_parses_usage_and_json() -> None:
-    payload = {
-        "candidates": [{"content": {"parts": [{"text": CLEARLY.model_dump_json()}]}}],
-        "usageMetadata": {"promptTokenCount": 220, "candidatesTokenCount": 35},
-    }
-    response = httpx.Response(
-        200,
-        json=payload,
-        request=httpx.Request("POST", "https://example.test/generate"),
+    fake = FakeStructuredChat([CLEARLY], input_tokens=220, output_tokens=35)
+    client = GeminiGateLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=fake,
     )
-    client = GeminiGateLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", return_value=response):
-        decision, usage = client.screen(job_doc="Job: backend", profile_doc="Profile: python")
+    decision, usage = client.screen(job_doc="Job: backend", profile_doc="Profile: python")
     assert decision.label == "clearly_qualified"
     assert usage.prompt_tokens == 220
     assert usage.completion_tokens == 35
@@ -197,15 +193,15 @@ def test_gemini_gate_parses_usage_and_json() -> None:
 
 
 def test_gemini_gate_429_is_retryable_without_body() -> None:
-    response = httpx.Response(
-        429,
-        text="rate limited: secret profile text",
-        request=httpx.Request("POST", "https://example.test/generate"),
+    client = GeminiGateLLM(
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        chat_model=FakeStructuredChat(
+            [ModelRateLimitError("rate limited: secret profile text")]
+        ),
     )
-    client = GeminiGateLLM(api_key="test-key", model="gemini-3.5-flash-lite")
-    with patch("app.extract.llm.httpx.post", return_value=response):
-        with pytest.raises(RetryableLLMError, match="gate llm retryable failure") as exc:
-            client.screen(job_doc="Job", profile_doc="Profile with personal history")
+    with pytest.raises(RetryableLLMError, match="gate llm retryable failure") as exc:
+        client.screen(job_doc="Job", profile_doc="Profile with personal history")
     assert "secret" not in str(exc.value)
     assert "personal" not in str(exc.value)
 

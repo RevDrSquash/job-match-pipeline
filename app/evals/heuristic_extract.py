@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 
-from app.extract.llm import JobExtraction, LLMUsage
+from app.extract.llm import JobExtraction
+from app.llm import LLMUsage
 from app.skills.linker import SkillLinker
 from app.skills.normalize import normalize_label
 

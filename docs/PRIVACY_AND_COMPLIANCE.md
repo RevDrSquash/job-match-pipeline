@@ -116,7 +116,8 @@ Note: job postings themselves are not personal information, so the `jobs` table 
 * Secrets in Secret Manager, never in env files or images
 * Retain `raw_jd` for audit; retain raw uploaded resumes only as long as needed to re-parse
 * Access logging on anything touching `user_profiles`
-* No personal information in application logs — including no resume text in error traces, which is an easy accidental leak
+* No personal information in application logs — including no resume text in error traces, which is an easy accidental leak. LLM SDK errors are remapped in `app/llm/errors.py` so upstream args (which can echo prompt/completion text) never reach logs or exception messages.
+* **Do not enable LangSmith tracing.** `LANGSMITH_TRACING` must stay unset. Traces include full prompts and completions; on `screen-job`, `generate-resume`, `verify-resume`, and profile parse those prompts are personal information.
 
 ## Related: the submission boundary
 

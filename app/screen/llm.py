@@ -8,31 +8,22 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import Settings, get_settings
-from app.extract.llm import (
+from app.llm import (
     DEFAULT_GEMINI_API_BASE,
     LLMUsage,
     PermanentLLMError,
     RetryableLLMError,
-    gemini_generate_json,
+    build_gemini_chat,
+    structured_call,
 )
-from app.screen.labels import QUALIFICATION_LABELS, normalize_qualification_label
+from app.screen.labels import normalize_qualification_label
 
 logger = logging.getLogger(__name__)
-
-GATE_RESPONSE_SCHEMA: dict[str, Any] = {
-    "type": "OBJECT",
-    "properties": {
-        "label": {"type": "STRING", "enum": list(QUALIFICATION_LABELS)},
-        "reason": {"type": "STRING"},
-        "confidence": {"type": "NUMBER"},
-    },
-    "required": ["label", "reason", "confidence"],
-}
 
 GATE_SYSTEM_PROMPT = """\
 You are a job-fit screening advisor. Given a condensed job description and a \
@@ -90,7 +81,8 @@ class GateDecision(BaseModel):
         try:
             label = normalize_qualification_label(self.label)
         except ValueError:
-            # temperature=0 + enforced schema: a bad label is deterministic.
+            # Schema-enforced output with a bad label is a poison payload;
+            # retrying re-bills with low odds of a different answer.
             raise PermanentLLMError("gate llm invalid label") from None
         reason = (self.reason or "").strip()
         try:
@@ -142,44 +134,45 @@ class GeminiGateLLM:
         input_usd_per_mtok: float = 0.30,
         output_usd_per_mtok: float = 2.50,
         timeout: float = 45.0,
+        chat_model: object | None = None,
     ) -> None:
-        if not api_key:
+        if chat_model is None and not api_key:
             raise RetryableLLMError("llm_api_key is not configured")
-        self._api_key = api_key
-        self._model = model
-        self._api_base = api_base.rstrip("/")
+        self._model_name = model
         self._input_usd_per_mtok = input_usd_per_mtok
         self._output_usd_per_mtok = output_usd_per_mtok
-        self._timeout = timeout
+        self._chat = chat_model or build_gemini_chat(
+            api_key=api_key,
+            model=model,
+            api_base=api_base,
+            timeout=timeout,
+        )
 
     def screen(
         self, *, job_doc: str, profile_doc: str
     ) -> tuple[GateDecision, LLMUsage]:
         user_text = f"Job:\n{job_doc}\n\nProfile:\n{profile_doc}"
         try:
-            data, usage = gemini_generate_json(
-                api_key=self._api_key,
-                model=self._model,
-                api_base=self._api_base,
-                system_prompt=GATE_SYSTEM_PROMPT,
-                user_text=user_text,
-                response_schema=GATE_RESPONSE_SCHEMA,
+            decision, usage = structured_call(
+                self._chat,
+                GateDecision,
+                model_name=self._model_name,
                 input_usd_per_mtok=self._input_usd_per_mtok,
                 output_usd_per_mtok=self._output_usd_per_mtok,
-                timeout=self._timeout,
+                system_prompt=GATE_SYSTEM_PROMPT,
+                user_text=user_text,
+                provider="gate llm",
             )
-        # Drop upstream args — generate_json errors can echo completion text.
         except PermanentLLMError:
             raise PermanentLLMError("gate llm permanent failure") from None
         except RetryableLLMError:
             raise RetryableLLMError("gate llm retryable failure") from None
         try:
-            decision = GateDecision.model_validate(data).normalized()
+            return decision.normalized(), usage
         except PermanentLLMError:
             raise PermanentLLMError("gate llm invalid structured output") from None
         except Exception:
             raise PermanentLLMError("gate llm invalid structured output") from None
-        return decision, usage
 
 
 def build_gate_llm(settings: Settings | None = None) -> GateLLM:
