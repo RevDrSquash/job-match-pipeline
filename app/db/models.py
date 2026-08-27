@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,26 +28,227 @@ from app.db.base import Base
 EMBEDDING_DIM = 768
 
 
-class Skill(Base):
-    """Canonical skill taxonomy entry (ESCO for the PoC; O*NET-swappable).
+class Concept(Base):
+    """Source-independent skill-graph concept owned by this application."""
 
-    Ids are opaque strings chosen by the loader (ESCO concept URIs today).
-    Embeddings support span-level similarity fallback in the linker.
-    """
-
-    __tablename__ = "skills"
-    __table_args__ = (Index("ix_skills_canonical_label", "canonical_label"),)
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    canonical_label: Mapped[str] = mapped_column(Text, nullable=False)
-    alt_labels: Mapped[list[str]] = mapped_column(
-        ARRAY(Text), nullable=False, server_default="{}"
+    __tablename__ = "concept"
+    __table_args__ = (
+        Index("ix_concept_normalized_name", "normalized_name"),
+        Index(
+            "ix_concept_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_where=text("embedding IS NOT NULL"),
+        ),
     )
+
+    # Importers assign deterministic UUIDv5 IDs; source identifiers never become
+    # canonical IDs.
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    concept_type: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="active"
+    )
     embedding = mapped_column(Vector(EMBEDDING_DIM))
-    # Which model produced ``embedding`` (e.g. gemini-embedding-001). Null when
-    # the row has no vector or it came from the offline hashing stand-in.
     embedding_model: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    aliases: Mapped[list[ConceptAlias]] = relationship(
+        back_populates="concept", cascade="all, delete-orphan", passive_deletes=True
+    )
+    outgoing_edges: Mapped[list[ConceptEdge]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+        foreign_keys="ConceptEdge.subject_id",
+        passive_deletes=True,
+    )
+    incoming_edges: Mapped[list[ConceptEdge]] = relationship(
+        back_populates="object",
+        cascade="all, delete-orphan",
+        foreign_keys="ConceptEdge.object_id",
+        passive_deletes=True,
+    )
+    source_mappings: Mapped[list[SourceMapping]] = relationship(
+        back_populates="concept", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class ConceptAlias(Base):
+    """A normalized surface form that can resolve to a canonical concept."""
+
+    __tablename__ = "concept_alias"
+    __table_args__ = (
+        Index("ix_concept_alias_normalized_alias", "normalized_alias"),
+        Index(
+            "ix_concept_alias_normalized_alias_trgm",
+            "normalized_alias",
+            postgresql_using="gin",
+            postgresql_ops={"normalized_alias": "gin_trgm_ops"},
+        ),
+    )
+
+    concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    normalized_alias: Mapped[str] = mapped_column(Text, primary_key=True)
+    alias: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="en"
+    )
+    alias_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    concept: Mapped[Concept] = relationship(back_populates="aliases")
+
+
+class ConceptEdge(Base):
+    """An application-owned interpretation of a canonical graph relationship."""
+
+    __tablename__ = "concept_edge"
+    __table_args__ = (
+        Index("ix_concept_edge_object_predicate", "object_id", "predicate"),
+    )
+
+    subject_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    predicate: Mapped[str] = mapped_column(String(64), primary_key=True)
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="1.0"
+    )
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    subject: Mapped[Concept] = relationship(
+        back_populates="outgoing_edges", foreign_keys=[subject_id]
+    )
+    object: Mapped[Concept] = relationship(
+        back_populates="incoming_edges", foreign_keys=[object_id]
+    )
+
+
+class SourceConcept(Base):
+    """Lossless representation of one external taxonomy concept or example."""
+
+    __tablename__ = "source_concept"
+    __table_args__ = (
+        UniqueConstraint(
+            "source",
+            "source_version",
+            "external_id",
+            name="uq_source_concept_source_version_external_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_data: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    mappings: Mapped[list[SourceMapping]] = relationship(
+        back_populates="source_concept",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    outgoing_edges: Mapped[list[SourceEdge]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+        foreign_keys="SourceEdge.subject_id",
+        passive_deletes=True,
+    )
+    incoming_edges: Mapped[list[SourceEdge]] = relationship(
+        back_populates="object",
+        cascade="all, delete-orphan",
+        foreign_keys="SourceEdge.object_id",
+        passive_deletes=True,
+    )
+
+
+class SourceMapping(Base):
+    """Provenance-bearing mapping from a source concept to a canonical concept."""
+
+    __tablename__ = "source_mapping"
+    __table_args__ = (Index("ix_source_mapping_concept_id", "concept_id"),)
+
+    source_concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("source_concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    mapping_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="1.0"
+    )
+    mapping_method: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    source_concept: Mapped[SourceConcept] = relationship(back_populates="mappings")
+    concept: Mapped[Concept] = relationship(back_populates="source_mappings")
+
+
+class SourceEdge(Base):
+    """Relationship asserted by a source, without canonical promotion."""
+
+    __tablename__ = "source_edge"
+    __table_args__ = (
+        Index("ix_source_edge_object_predicate", "object_id", "predicate"),
+    )
+
+    subject_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("source_concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    predicate: Mapped[str] = mapped_column(String(64), primary_key=True)
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("source_concept.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="1.0"
+    )
+    raw_data: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+
+    subject: Mapped[SourceConcept] = relationship(
+        back_populates="outgoing_edges", foreign_keys=[subject_id]
+    )
+    object: Mapped[SourceConcept] = relationship(
+        back_populates="incoming_edges", foreign_keys=[object_id]
+    )
 
 
 class Company(Base):
