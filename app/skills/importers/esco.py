@@ -193,7 +193,7 @@ def import_esco(
     session: Session,
     *,
     concepts_path: Path,
-    broader_relations_path: Path,
+    broader_relations_path: Path | None,
     skill_relations_path: Path | None = None,
     alias_overrides_path: Path | None = None,
     source_version: str = ESCO_VERSION,
@@ -204,9 +204,15 @@ def import_esco(
     ESCO skill/knowledge rows found canonical nodes. Skill groups and every
     source assertion remain in the source layer. Only broader relationships
     whose endpoints both have canonical nodes are promoted to ``IS_A``.
+    ``broader_relations_path=None`` imports concepts without hierarchy (the
+    relations file is part of the manually downloaded portal bundle).
     """
     concepts = parse_esco_concepts(concepts_path)
-    relations = parse_esco_broader_relations(broader_relations_path)
+    relations = (
+        parse_esco_broader_relations(broader_relations_path)
+        if broader_relations_path is not None
+        else []
+    )
     if skill_relations_path is not None:
         relations.extend(parse_esco_skill_relations(skill_relations_path))
     curated = load_curated_aliases(alias_overrides_path) if alias_overrides_path else []

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     skill_link_high_confidence: float | None = None
     skill_link_threshold: float | None = None
     skill_link_margin: float | None = None
+    # DB-side linker trgm stage (between exact-alias and vector). None = the
+    # conservative default in app/skills/pg_linker.py; provider-independent.
+    skill_link_trgm_threshold: float | None = None
 
     # Profile parse (CLI). Resume text IS personal information — ZDR vendor
     # terms are a production blocker (docs/PRIVACY_AND_COMPLIANCE.md).

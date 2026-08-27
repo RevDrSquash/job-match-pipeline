@@ -1,8 +1,8 @@
 """PoC seed: common software-engineering skills plus aliases, as SkillRecords.
 
-Full ESCO (~13.9k) is the target taxonomy — load it into the ``skills`` table
-with ``scripts/load_esco.py``. This seed is pure data (no taxonomy vendor
-types); the profile CLI falls back to it only when the table is empty, and
+The canonical ESCO + O*NET graph is the target taxonomy — build it with
+``scripts/build_skill_graph.py``. This seed is pure data (no taxonomy vendor
+types); the profile CLI falls back to it only when the graph is empty, and
 tests use it for offline linking. Swapping it out is a data change, not a
 call-site change.
 

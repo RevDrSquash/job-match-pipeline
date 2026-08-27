@@ -17,7 +17,7 @@ import httpx
 from sqlalchemy import func, select, update
 
 from app.config import Settings, get_settings
-from app.db.models import Generation, Job, Match, PipelineEvent, Skill, User
+from app.db.models import Concept, Generation, Job, Match, PipelineEvent, User
 from app.db.session import db_session
 from app.evals.runner import run_evals
 from app.poc.measure import collect_measurements
@@ -111,13 +111,13 @@ def run_poc(
 
     cycles: list[dict[str, Any]] = []
     if live:
-        # ESCO is a hard prerequisite for extract-job: fail fast here instead
-        # of letting every extract 503 until the wait deadline.
+        # A built skill graph is a hard prerequisite for extract-job: fail
+        # fast here instead of letting every extract 503 until the deadline.
         with db_session() as session:
-            if session.scalar(select(Skill.id).limit(1)) is None:
+            if session.scalar(select(Concept.id).limit(1)) is None:
                 raise RuntimeError(
-                    "skills table is empty — load the ESCO taxonomy first "
-                    "(python -m scripts.load_esco) before a live poc run"
+                    "concept table is empty — build the skill graph first "
+                    "(python -m scripts.build_skill_graph) before a live poc run"
                 )
         url = (base_url or settings.local_queue_base_url).rstrip("/")
         _ensure_server(url)

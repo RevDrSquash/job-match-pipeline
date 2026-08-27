@@ -36,7 +36,7 @@ def _api_key(settings: Settings) -> str:
 def build_skill_linker(
     session: Session, settings: Settings | None = None
 ) -> SkillLinker:
-    """Shared linker over the ``skills`` table; PoC seed when it is empty."""
+    """Shared linker over the canonical skill graph; PoC seed when empty."""
     return linker_from_session(session, settings, allow_seed=True)
 
 

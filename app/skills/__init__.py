@@ -21,12 +21,14 @@ from app.skills.linker import (
     link_spans,
 )
 from app.skills.normalize import expand_compound_span, normalize_label
+from app.skills.pg_linker import PostgresSkillLinker
 
 __all__ = [
     "Embedder",
     "GeminiSpanEmbedder",
     "HashingEmbedder",
     "InMemorySkillLinker",
+    "PostgresSkillLinker",
     "ScanHit",
     "SkillLinker",
     "SkillRecord",

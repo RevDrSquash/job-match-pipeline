@@ -1,148 +1,84 @@
-"""Parse and upsert taxonomy rows into ``skills`` (shared by loaders)."""
+"""Read helpers over the canonical skill graph (``concept`` tables).
+
+Writes go through ``app/skills/importers`` (``scripts/build_skill_graph.py``).
+"""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import uuid
+from collections.abc import Iterable
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.db.models import Skill
-from app.skills.embeddings import Embedder, HashingEmbedder
-from app.skills.linker import SkillRecord, skill_embedding_text
-
-
-def _resolve_embedding_model(
-    explicit: str | None, embedder: Embedder | None
-) -> str | None:
-    """Prefer an explicit model name, then ``embedder.model`` if present."""
-    if explicit is not None:
-        return explicit
-    if embedder is None:
-        return None
-    model = getattr(embedder, "model", None)
-    return str(model) if model else None
-
-
-def upsert_skills(
-    session: Session,
-    records: Sequence[SkillRecord],
-    *,
-    embedder: Embedder | None = None,
-    compute_embeddings: bool = True,
-    embedding_model: str | None = None,
-    batch_size: int = 500,
-    commit: bool = True,
-) -> int:
-    """Idempotent upsert of taxonomy rows. Returns number of rows written."""
-    if not records:
-        return 0
-
-    active_embedder = embedder
-    if compute_embeddings and active_embedder is None:
-        active_embedder = HashingEmbedder()
-
-    computed_model = (
-        _resolve_embedding_model(embedding_model, active_embedder)
-        if compute_embeddings
-        else embedding_model
-    )
-
-    written = 0
-    for start in range(0, len(records), batch_size):
-        chunk = list(records[start : start + batch_size])
-        embeddings: list[list[float] | None]
-        if active_embedder is not None and compute_embeddings:
-            embeddings = active_embedder.embed([skill_embedding_text(r) for r in chunk])
-        else:
-            embeddings = [
-                list(r.embedding) if r.embedding is not None else None for r in chunk
-            ]
-
-        rows = [
-            {
-                "id": record.id,
-                "canonical_label": record.canonical_label,
-                "alt_labels": list(record.alt_labels),
-                "description": record.description,
-                "embedding": emb,
-                "embedding_model": (
-                    computed_model
-                    if compute_embeddings
-                    else computed_model or record.embedding_model
-                ),
-            }
-            for record, emb in zip(chunk, embeddings, strict=True)
-        ]
-        stmt = insert(Skill).values(rows)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[Skill.id],
-            set_={
-                "canonical_label": stmt.excluded.canonical_label,
-                "alt_labels": stmt.excluded.alt_labels,
-                "description": stmt.excluded.description,
-                "embedding": stmt.excluded.embedding,
-                "embedding_model": stmt.excluded.embedding_model,
-            },
-        )
-        session.execute(stmt)
-        written += len(rows)
-        if commit:
-            session.commit()
-        else:
-            session.flush()
-
-    return written
+from app.db.models import Concept, ConceptAlias
+from app.skills.linker import SkillRecord
+from app.skills.normalize import normalize_label
 
 
 def load_skill_records(session: Session) -> list[SkillRecord]:
-    """Load all ``skills`` rows as linker records."""
-    rows = session.scalars(select(Skill)).all()
-    return [
-        SkillRecord(
-            id=row.id,
-            canonical_label=row.canonical_label,
-            alt_labels=tuple(row.alt_labels or ()),
-            description=row.description,
-            embedding=tuple(row.embedding) if row.embedding is not None else None,
-            embedding_model=row.embedding_model,
+    """Snapshot active concepts (+ aliases) as in-memory linker records.
+
+    Offline-tooling path (threshold calibration); production linking uses
+    ``PostgresSkillLinker`` directly. Derived parenthetical aliases are
+    excluded — ``InMemorySkillLinker`` re-derives those bare forms itself and
+    must not scan them.
+    """
+    concepts = session.scalars(
+        select(Concept).where(Concept.status == "active").order_by(Concept.id)
+    ).all()
+    alias_rows = session.execute(
+        select(ConceptAlias.concept_id, ConceptAlias.alias)
+        .where(ConceptAlias.alias_type != "derived")
+        .order_by(ConceptAlias.concept_id, ConceptAlias.normalized_alias)
+    ).all()
+    aliases: dict[uuid.UUID, list[str]] = {}
+    for concept_id, alias in alias_rows:
+        aliases.setdefault(concept_id, []).append(alias)
+
+    records: list[SkillRecord] = []
+    for row in concepts:
+        canonical_key = normalize_label(row.canonical_name)
+        alt_labels = tuple(
+            alias
+            for alias in aliases.get(row.id, [])
+            if normalize_label(alias) != canonical_key
         )
-        for row in rows
-    ]
-
-
-def records_from_mapping_rows(rows: Iterable[dict[str, object]]) -> list[SkillRecord]:
-    """Build ``SkillRecord`` list from dict rows (used by CSV / API parsers)."""
-    out: list[SkillRecord] = []
-    for row in rows:
-        skill_id = str(row["id"]).strip()
-        label = str(row["canonical_label"]).strip()
-        if not skill_id or not label:
-            continue
-        alts_raw = row.get("alt_labels") or ()
-        if isinstance(alts_raw, str):
-            alts = tuple(a.strip() for a in _split_alt_labels(alts_raw) if a.strip())
-        else:
-            alts = tuple(str(a).strip() for a in alts_raw if str(a).strip())  # type: ignore[arg-type]
-        description = row.get("description")
-        desc = str(description).strip() if description else None
-        out.append(
+        records.append(
             SkillRecord(
-                id=skill_id,
-                canonical_label=label,
-                alt_labels=alts,
-                description=desc or None,
+                id=str(row.id),
+                canonical_label=row.canonical_name,
+                alt_labels=alt_labels,
+                description=row.description,
+                embedding=tuple(row.embedding) if row.embedding is not None else None,
+                embedding_model=row.embedding_model,
             )
         )
-    return out
+    return records
 
 
-def _split_alt_labels(raw: str) -> list[str]:
-    if "|" in raw:
-        return raw.split("|")
-    if "\n" in raw:
-        return raw.splitlines()
-    if ";" in raw and ", " not in raw:
-        return raw.split(";")
-    return [raw] if raw.strip() else []
+def concept_labels(session: Session, skill_ids: Iterable[str]) -> dict[str, str]:
+    """Map stored skill-id strings to canonical names (one batched query).
+
+    Ids that are not concept UUIDs (legacy / seed ids awaiting the backfill
+    script) are simply absent from the result; callers echo the id.
+    """
+    parsed: dict[str, uuid.UUID] = {}
+    for skill_id in skill_ids:
+        try:
+            parsed[skill_id] = uuid.UUID(str(skill_id))
+        except (TypeError, ValueError):
+            continue
+    if not parsed:
+        return {}
+    rows = session.execute(
+        select(Concept.id, Concept.canonical_name).where(
+            Concept.id.in_(set(parsed.values()))
+        )
+    ).all()
+    names = {row.id: row.canonical_name for row in rows}
+    return {
+        skill_id: names[concept_uuid]
+        for skill_id, concept_uuid in parsed.items()
+        if concept_uuid in names
+    }

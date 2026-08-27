@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, Generation, Job, Match, PipelineEvent, Skill, User
+from app.db.models import Company, Generation, Job, Match, PipelineEvent, User
 from app.ingest.events import record_pipeline_event
 from app.poc.measure import collect_measurements
 from app.privacy import PrivacySafeError
@@ -19,6 +19,7 @@ from app.profile.service import bundle_to_dict, edit_profile, show_profile
 from app.queue import TaskQueue
 from app.quota import try_consume_quota
 from app.screen.labels import qualification_label_rank_expr
+from app.skills.repository import concept_labels
 
 UI_STAGE = "ui"
 UI_ACTIONS = frozenset(
@@ -533,10 +534,7 @@ def _match_payload(
 def _skill_labels(session: Session, skill_ids: set[str]) -> dict[str, str]:
     if not skill_ids:
         return {}
-    rows = session.execute(
-        select(Skill.id, Skill.canonical_label).where(Skill.id.in_(skill_ids))
-    ).all()
-    return {row.id: row.canonical_label for row in rows}
+    return concept_labels(session, skill_ids)
 
 
 def _skill_refs(

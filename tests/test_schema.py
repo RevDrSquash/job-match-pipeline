@@ -10,7 +10,16 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, Job, PipelineEvent, Skill, User, UserFilter, UserProfile
+from app.db.models import (
+    Company,
+    Concept,
+    ConceptAlias,
+    Job,
+    PipelineEvent,
+    User,
+    UserFilter,
+    UserProfile,
+)
 from app.db.session import normalize_database_url
 from app.match.sql import candidate_query
 from tests.conftest import requires_db
@@ -140,22 +149,31 @@ def test_url_hash_upsert(db_session: Session) -> None:
 
 
 @requires_db
-def test_skills_table_round_trip(db_session: Session) -> None:
-    skill = Skill(
-        id="http://data.europa.eu/esco/skill/schema-test-only",
-        canonical_label="Amazon Web Services",
-        alt_labels=["AWS"],
+def test_concept_round_trip_with_alias_and_embedding(db_session: Session) -> None:
+    concept_id = uuid.uuid5(uuid.NAMESPACE_URL, "schema-test-only-concept")
+    concept = Concept(
+        id=concept_id,
+        canonical_name="Amazon Web Services",
+        normalized_name="amazon web services",
+        concept_type="technology",
         description="Cloud platform",
         embedding=_unit_vector(768, 3),
         embedding_model="gemini-embedding-001",
     )
-    db_session.add(skill)
+    alias = ConceptAlias(
+        concept_id=concept_id,
+        normalized_alias="aws",
+        alias="AWS",
+        alias_type="alt",
+    )
+    db_session.add_all([concept, alias])
     db_session.flush()
 
-    loaded = db_session.get(Skill, skill.id)
+    loaded = db_session.get(Concept, concept_id)
     assert loaded is not None
-    assert loaded.canonical_label == "Amazon Web Services"
-    assert loaded.alt_labels == ["AWS"]
+    assert loaded.canonical_name == "Amazon Web Services"
+    assert loaded.status == "active"
+    assert [a.alias for a in loaded.aliases] == ["AWS"]
     assert list(loaded.embedding)[3] == pytest.approx(1.0)
     assert loaded.embedding_model == "gemini-embedding-001"
 
