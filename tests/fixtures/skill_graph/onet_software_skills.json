@@ -1,0 +1,60 @@
+{
+  "table_id": "software_skills",
+  "title": "Software Skills",
+  "row": [
+    {
+      "onetsoc_code": "15-1252.00",
+      "title": "Software Developers",
+      "workplace_example": "Python",
+      "element_id": "2.E.7.e",
+      "element_name": "Development environment software",
+      "hot_technology": "Y",
+      "in_demand": "Y"
+    },
+    {
+      "onetsoc_code": "15-1243.00",
+      "title": "Database Architects",
+      "workplace_example": "Postgres",
+      "element_id": "2.E.6.j",
+      "element_name": "Database management software",
+      "hot_technology": "Y",
+      "in_demand": "N"
+    },
+    {
+      "onetsoc_code": "15-1252.00",
+      "title": "Software Developers",
+      "workplace_example": "Amazon Web Services AWS software",
+      "element_id": "2.E.11.e",
+      "element_name": "Cloud-based management software",
+      "hot_technology": "Y",
+      "in_demand": "Y"
+    },
+    {
+      "onetsoc_code": "15-1244.00",
+      "title": "Network and Computer Systems Administrators",
+      "workplace_example": "Amazon Web Services AWS software",
+      "element_id": "2.E.11.e",
+      "element_name": "Cloud-based management software",
+      "hot_technology": "Y",
+      "in_demand": "N"
+    },
+    {
+      "onetsoc_code": "15-1252.00",
+      "title": "Software Developers",
+      "workplace_example": "Docker",
+      "element_id": "2.E.10.a",
+      "element_name": "Application server software",
+      "hot_technology": "Y",
+      "in_demand": "Y"
+    },
+    {
+      "onetsoc_code": "15-1252.00",
+      "title": "Software Developers",
+      "workplace_example": "Kubernetes",
+      "element_id": "2.E.10.a",
+      "element_name": "Application server software",
+      "hot_technology": "Y",
+      "in_demand": "Y"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "version": "test",
+  "overrides": [
+    {
+      "uri": "esco:python",
+      "preferred_label": "Python",
+      "aliases": ["Python", "python3"]
+    }
+  ]
+}

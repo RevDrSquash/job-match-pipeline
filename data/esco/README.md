@@ -1,15 +1,28 @@
-"""ESCO attribution note — classification CSVs are not committed here.
+# ESCO source data
 
-Download ``skills_en.csv`` from https://esco.ec.europa.eu/en/use-esco/download
-or let ``python -m scripts.load_esco`` fetch via the public ESCO API and write
-a cache CSV into this directory (gitignored).
+ESCO classification files are downloaded locally and are not committed.
+Download the English CSV bundle for pinned release 1.2.1 from:
 
-``alias_overrides.json`` *is* committed: curated everyday names for official
-ESCO concept URIs (postgres/psql, Python, TypeScript, …). The loader merges
-those aliases into ``alt_labels`` at upsert time; the file is the provenance
-record. Docker / Kubernetes / Terraform / AWS have no ESCO concept and are
-omitted on purpose.
+<https://esco.ec.europa.eu/en/use-esco/download>
 
-Attribution: ESCO © European Union, CC BY 4.0.
-See https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences
-"""
+The graph importer uses:
+
+- `skills_en.csv`
+- `broaderRelationsSkillPillar_en.csv`
+- optionally `skillSkillRelations_en.csv`
+
+The portal download is manual. The canonical graph importer does not use the
+public API because it cannot pin a complete release or provide all source
+relationships.
+
+`alias_overrides.json` is committed. It records curated everyday names for
+official ESCO concept URIs (Postgres/psql, Python, TypeScript, and others).
+The importer stores them as provenance-bearing `curated` concept aliases;
+safe parenthetical bare forms are stored separately as `derived` aliases.
+
+Docker, Kubernetes, Terraform, and AWS have no ESCO concept. They enter the
+canonical graph through the pinned O*NET Software Skills import instead of
+being attached to speculative ESCO concepts.
+
+Attribution: ESCO © European Union, CC BY 4.0. See the
+[ESCO copyright notice](https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences).

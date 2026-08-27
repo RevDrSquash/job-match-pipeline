@@ -30,3 +30,6 @@ evals/results/*.json
 evals/results/*.txt
 data/esco/*.csv
 data/esco/*.csv.gz
+data/onet/*.csv
+data/onet/*.json
+data/onet/*.xlsx
