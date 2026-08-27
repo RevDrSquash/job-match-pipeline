@@ -125,9 +125,9 @@ def _add_match(
         rerank_score=rerank_score,
         qualification_label=qualification_label,
         screen_reason=screen_reason,
-        matched_skills=matched_skills if matched_skills is not None else ["esco:python"],
+        matched_skills=matched_skills if matched_skills is not None else ["seed:python"],
         adjacent_skills=[],
-        missing_skills=missing_skills if missing_skills is not None else ["esco:terraform"],
+        missing_skills=missing_skills if missing_skills is not None else ["seed:terraform"],
     )
     db_session.add(match)
     db_session.flush()
@@ -346,10 +346,10 @@ def test_get_generation(api_client: TestClient, db_session: Session) -> None:
     assert body["verify_status"] == "passed"
     assert body["job"]["url"] == "https://boards.example/j/99"
     assert body["match"]["matched_skills"] == [
-        {"id": "esco:python", "label": "esco:python"}
+        {"id": "seed:python", "label": "seed:python"}
     ]
     assert body["match"]["missing_skills"] == [
-        {"id": "esco:terraform", "label": "esco:terraform"}
+        {"id": "seed:terraform", "label": "seed:terraform"}
     ]
     assert body["ui"]["applied_at"] is None
 
@@ -453,7 +453,7 @@ def test_skill_labels_fall_back_to_id_when_unknown(
     response = api_client.get("/api/matches", params={"user_id": str(user.id)})
     assert response.status_code == 200
     row = next(item for item in response.json()["matches"] if item["id"] == str(match.id))
-    assert row["matched_skills"][0] == {"id": "esco:python", "label": "esco:python"}
+    assert row["matched_skills"][0] == {"id": "seed:python", "label": "seed:python"}
 
 
 @requires_db

@@ -1,8 +1,8 @@
 """Canonical skill linking (taxonomy-agnostic).
 
-The shared linker is used by ``extract-job`` and profile parsing. Taxonomy
-loading (ESCO for the PoC; O*NET is the named alternative) stays in
-``scripts/`` — nothing in this package hard-codes a taxonomy vendor.
+The shared linker is used by ``extract-job`` and profile parsing. Graph
+builds (ESCO + O*NET) stay in ``scripts/build_skill_graph.py`` — nothing
+in this package hard-codes a taxonomy vendor.
 """
 
 from app.skills.embeddings import (

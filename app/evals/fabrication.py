@@ -30,25 +30,25 @@ from app.verify.deterministic import run_deterministic_checks
 _PLANTS: dict[str, GeneratedResume] = {
     "missing_skill": GeneratedResume(
         resume_doc="Invented 4 years of Rust in production.",
-        claimed_skill_ids=["esco:rust"],
+        claimed_skill_ids=["seed:rust"],
         claims=[
             Claim(
                 text="4 years of Rust",
                 span_ids=[],
                 kind="skill",
-                canonical_skill_id="esco:rust",
+                canonical_skill_id="seed:rust",
             )
         ],
     ),
     "adjacent_not_equivalent": GeneratedResume(
         resume_doc="Shipped production CloudFormation stacks.",
-        claimed_skill_ids=["esco:cloudformation"],
+        claimed_skill_ids=["seed:cloudformation"],
         claims=[
             Claim(
                 text="CloudFormation",
                 span_ids=[],
                 kind="skill",
-                canonical_skill_id="esco:cloudformation",
+                canonical_skill_id="seed:cloudformation",
             )
         ],
     ),

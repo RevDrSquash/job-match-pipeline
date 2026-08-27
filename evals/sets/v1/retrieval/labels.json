@@ -12,12 +12,12 @@
     "work_arrangement": ["remote"],
     "seniority_band": "mid,senior,staff",
     "skill_ids": [
-      "esco:python",
-      "esco:postgresql",
-      "esco:docker",
-      "esco:kubernetes",
-      "esco:aws",
-      "esco:terraform"
+      "seed:python",
+      "seed:postgresql",
+      "seed:docker",
+      "seed:kubernetes",
+      "seed:aws",
+      "seed:terraform"
     ],
     "synthesized_doc": "Title: Senior Backend Engineer\nSeniority: senior\nSkills: Python; PostgreSQL; Docker; Kubernetes; Amazon Web Services; Terraform\nHard requirements: production Python; PostgreSQL schema design\nCompensation: 140000+"
   },
@@ -29,7 +29,7 @@
       "work_arrangement": "remote",
       "comp_min": 160000,
       "comp_max": 200000,
-      "skill_ids": ["esco:python", "esco:postgresql", "esco:aws"],
+      "skill_ids": ["seed:python", "seed:postgresql", "seed:aws"],
       "synthesized_doc": "Title: Senior Backend Engineer\nSeniority: senior\nSkills: Python; PostgreSQL; Amazon Web Services\nHard requirements: production Python; PostgreSQL schema design\nCompensation: 160000-200000",
       "relevant": true
     },
@@ -40,7 +40,7 @@
       "work_arrangement": "remote",
       "comp_min": 150000,
       "comp_max": 190000,
-      "skill_ids": ["esco:python", "esco:kubernetes", "esco:aws"],
+      "skill_ids": ["seed:python", "seed:kubernetes", "seed:aws"],
       "synthesized_doc": "Title: Backend Platform Engineer\nSeniority: senior\nSkills: Python; Kubernetes; Amazon Web Services; Docker\nHard requirements: Kubernetes; production Python\nCompensation: 150000-190000",
       "relevant": true
     },
@@ -51,7 +51,7 @@
       "work_arrangement": "remote",
       "comp_min": 180000,
       "comp_max": 210000,
-      "skill_ids": ["esco:python", "esco:postgresql", "esco:etl"],
+      "skill_ids": ["seed:python", "seed:postgresql", "seed:etl"],
       "synthesized_doc": "Title: Backend Engineer, Data\nSeniority: senior\nSkills: Python; PostgreSQL; ETL\nHard requirements: Python data pipelines; PostgreSQL\nCompensation: 180000-210000",
       "relevant": true
     },
@@ -62,7 +62,7 @@
       "work_arrangement": "remote",
       "comp_min": 160000,
       "comp_max": 190000,
-      "skill_ids": ["esco:react", "esco:typescript", "esco:css"],
+      "skill_ids": ["seed:react", "seed:typescript", "seed:css"],
       "synthesized_doc": "Title: Senior Frontend Engineer\nSeniority: senior\nSkills: React; TypeScript; CSS\nHard requirements: React component systems\nCompensation: 160000-190000",
       "relevant": false
     },
@@ -73,7 +73,7 @@
       "work_arrangement": "remote",
       "comp_min": 90000,
       "comp_max": 110000,
-      "skill_ids": ["esco:python", "esco:postgresql"],
+      "skill_ids": ["seed:python", "seed:postgresql"],
       "synthesized_doc": "Title: Backend Engineer\nSeniority: junior\nSkills: Python; PostgreSQL\nCompensation: 90000-110000",
       "relevant": true,
       "note": "Semantically relevant but ATS comp_min is below the profile floor — metadata should drop it."
@@ -85,7 +85,7 @@
       "work_arrangement": "onsite",
       "comp_min": 180000,
       "comp_max": 220000,
-      "skill_ids": ["esco:python", "esco:aws"],
+      "skill_ids": ["seed:python", "seed:aws"],
       "synthesized_doc": "Title: Backend Engineer\nSkills: Python; Amazon Web Services\nCompensation: 180000-220000",
       "relevant": false
     },
@@ -96,7 +96,7 @@
       "work_arrangement": "remote",
       "comp_min": 190000,
       "comp_max": 230000,
-      "skill_ids": ["esco:kubernetes", "esco:aws", "esco:terraform"],
+      "skill_ids": ["seed:kubernetes", "seed:aws", "seed:terraform"],
       "synthesized_doc": "Title: Staff Site Reliability Engineer\nSkills: Kubernetes; Amazon Web Services; Terraform\nCompensation: 190000-230000",
       "relevant": true,
       "note": "Relevant platform work, but title_families=['Backend'] drops titles that do not contain 'Backend'."
@@ -108,7 +108,7 @@
       "work_arrangement": "remote",
       "comp_min": 160000,
       "comp_max": 200000,
-      "skill_ids": ["esco:product-management"],
+      "skill_ids": ["seed:product-management"],
       "synthesized_doc": "Title: Product Manager\nSkills: Product management\nCompensation: 160000-200000",
       "relevant": false
     }

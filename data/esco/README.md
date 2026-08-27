@@ -24,5 +24,10 @@ Docker, Kubernetes, Terraform, and AWS have no ESCO concept. They enter the
 canonical graph through the pinned O*NET Software Skills import instead of
 being attached to speculative ESCO concepts.
 
+Build/rebuild: `python -m scripts.build_skill_graph`. After a rebuild that
+changes concept identity, rewrite stored skill-id arrays with
+`python -m scripts.backfill_skill_ids`. Full procedure:
+[`docs/SKILL_GRAPH.md`](../../docs/SKILL_GRAPH.md).
+
 Attribution: ESCO © European Union, CC BY 4.0. See the
 [ESCO copyright notice](https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences).

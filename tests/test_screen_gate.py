@@ -7,45 +7,45 @@ from app.screen.gate import hard_requirement_overlap, is_rank_label_disagreement
 
 def test_full_overlap_has_zero_missing() -> None:
     result = hard_requirement_overlap(
-        ["esco:python", "esco:postgres"],
-        ["esco:postgres", "esco:python", "esco:docker"],
+        ["seed:python", "seed:postgres"],
+        ["seed:postgres", "seed:python", "seed:docker"],
     )
-    assert result.matched_ids == ("esco:python", "esco:postgres")
+    assert result.matched_ids == ("seed:python", "seed:postgres")
     assert result.missing_ids == ()
     assert result.missing_count == 0
 
 
 def test_single_missing_is_recorded() -> None:
     result = hard_requirement_overlap(
-        ["esco:python", "esco:terraform"],
-        ["esco:python"],
+        ["seed:python", "seed:terraform"],
+        ["seed:python"],
     )
-    assert result.matched_ids == ("esco:python",)
-    assert result.missing_ids == ("esco:terraform",)
+    assert result.matched_ids == ("seed:python",)
+    assert result.missing_ids == ("seed:terraform",)
     assert result.missing_count == 1
 
 
 def test_overlap_dedupes_and_preserves_required_order() -> None:
     result = hard_requirement_overlap(
-        ["esco:k8s", "esco:python", "esco:k8s", "", "esco:aws"],
-        ["esco:python"],
+        ["seed:k8s", "seed:python", "seed:k8s", "", "seed:aws"],
+        ["seed:python"],
     )
-    assert result.matched_ids == ("esco:python",)
-    assert result.missing_ids == ("esco:k8s", "esco:aws")
+    assert result.matched_ids == ("seed:python",)
+    assert result.missing_ids == ("seed:k8s", "seed:aws")
     assert result.missing_count == 2
 
 
 def test_empty_required_set_is_zero_missing() -> None:
-    result = hard_requirement_overlap([], ["esco:python"])
+    result = hard_requirement_overlap([], ["seed:python"])
     assert result.matched_ids == ()
     assert result.missing_count == 0
     assert hard_requirement_overlap(None, None).missing_count == 0
 
 
 def test_empty_profile_marks_all_required_missing() -> None:
-    result = hard_requirement_overlap(["esco:python", "esco:aws"], None)
+    result = hard_requirement_overlap(["seed:python", "seed:aws"], None)
     assert result.matched_ids == ()
-    assert result.missing_ids == ("esco:python", "esco:aws")
+    assert result.missing_ids == ("seed:python", "seed:aws")
     assert result.missing_count == 2
 
 

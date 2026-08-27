@@ -195,7 +195,7 @@ def test_planted_resume_caught_by_deterministic_verifier(linker: InMemorySkillLi
             resume_doc=clean.resume_doc,
             work_history=work_history,
             claim_source_map=clean.to_claim_map(attempt=1),
-            user_skill_ids=["esco:python"],
+            user_skill_ids=["seed:python"],
             linker=linker,
         )
         == []
@@ -205,7 +205,7 @@ def test_planted_resume_caught_by_deterministic_verifier(linker: InMemorySkillLi
         resume_doc=planted.resume_doc,
         work_history=work_history,
         claim_source_map=planted.to_claim_map(attempt=1),
-        user_skill_ids=["esco:python"],
+        user_skill_ids=["seed:python"],
         linker=linker,
     )
     assert failures
@@ -225,7 +225,7 @@ def test_grounded_generator_does_not_claim_missing_skills() -> None:
                 }
             ]
         ),
-        job_context="MISSING: esco:rust",
+        job_context="MISSING: seed:rust",
     )
     assert isinstance(resume, GeneratedResume)
     assert "Rust" not in resume.resume_doc

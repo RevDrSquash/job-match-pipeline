@@ -133,13 +133,13 @@ def _sibling_linker(
     postgres_vec: tuple[float, ...] = (0.0, 1.0),
 ) -> InMemorySkillLinker:
     mysql = SkillRecord(
-        id="esco:mysql",
+        id="seed:mysql",
         canonical_label="MySQL",
         embedding=(1.0, 0.0),
         embedding_model="fixed",
     )
     postgres = SkillRecord(
-        id="esco:postgresql",
+        id="seed:postgresql",
         canonical_label="PostgreSQL",
         embedding=postgres_vec,
         embedding_model="fixed",
@@ -169,7 +169,7 @@ def test_high_confidence_links_despite_tight_sibling_margin() -> None:
         query_vec=[1.0, 0.0],
         postgres_vec=_TIGHT_POSTGRES,
     )
-    assert linker.link_span(query) == "esco:mysql"
+    assert linker.link_span(query) == "seed:mysql"
 
 
 def test_threshold_plus_margin_links_clear_winner() -> None:
@@ -182,7 +182,7 @@ def test_threshold_plus_margin_links_clear_winner() -> None:
         query=query,
         query_vec=[0.80, 0.60],
     )
-    assert linker.link_span(query) == "esco:mysql"
+    assert linker.link_span(query) == "seed:mysql"
 
 
 def test_near_tied_siblings_below_high_confidence_are_refused() -> None:

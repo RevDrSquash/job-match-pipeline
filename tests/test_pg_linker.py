@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
@@ -62,6 +61,7 @@ def _clear_graph(session: Session) -> None:
         Concept,
     ):
         session.execute(delete(model))
+    session.flush()
 
 
 def _seed_graph(session: Session, *, embedding_model: str | None = None) -> None:
@@ -320,16 +320,15 @@ def test_linker_from_session_wires_postgres_linker(db_session: Session) -> None:
 
 @requires_db
 def test_linker_from_session_disables_vector_stage_on_model_mismatch(
-    db_session: Session, caplog: pytest.LogCaptureFixture
+    db_session: Session,
 ) -> None:
     _clear_graph(db_session)
     _seed_graph(db_session, embedding_model="gemini-embedding-001")
     settings = Settings(embedding_provider="hashing")
 
-    with caplog.at_level("WARNING", logger="app.skills.factory"):
-        linker = linker_from_session(db_session, settings)
+    linker = linker_from_session(db_session, settings)
     assert isinstance(linker, PostgresSkillLinker)
-    assert any("embedding_model mismatch" in rec.message for rec in caplog.records)
+    assert linker._embedder is None
     # Exact linking still works; nothing reaches a vector stage.
     assert linker.link_span("Postgres") == str(POSTGRES_ID)
     assert linker.link_span("relational database engine") is None
@@ -346,7 +345,7 @@ def test_linker_from_session_empty_graph_seed_fallback(db_session: Session) -> N
 
     seeded = linker_from_session(db_session, settings, allow_seed=True)
     assert isinstance(seeded, InMemorySkillLinker)
-    assert seeded.link_spans(["Python"]) == ["esco:python"]
+    assert seeded.link_spans(["Python"]) == ["seed:python"]
 
 
 def test_trgm_threshold_setting_overrides_default() -> None:

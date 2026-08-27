@@ -10,7 +10,7 @@ where those cutoffs should sit for a given span-embedder provider:
    (``evals/sets/v1/skill_linking/labels.json``, explicit and implicit) plus the
    calibration-only file ``calibration_spans.json`` (sibling-dense cases and
    ``skill_id=null`` negatives; kept out of the frozen v1 eval set) — against the
-   in-repo seed taxonomy (the space the labels' ``esco:<slug>`` ids live in).
+   in-repo seed taxonomy (the space the labels' ``seed:<slug>`` ids live in).
 2. Reports true/false score distributions, then grid-sweeps
    (high_confidence, threshold, margin) and suggests the triple with zero false
    links, maximal recall, and the widest safety slack to a decision flip.

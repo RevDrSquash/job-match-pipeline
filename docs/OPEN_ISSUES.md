@@ -57,18 +57,21 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
 * **Embedding model** — docs fix the dimension (768) but not the model.
   **Skill-span linking:** deterministic feature-hashing embedder in
   `app/skills/embeddings.py` (`HashingEmbedder`, 768-d) is the offline
-  default. Live taxonomy backfill (`scripts/load_esco.py
-  --embedding-provider gemini`, defaulting to `EMBEDDING_PROVIDER`) uses
+  default. Live graph builds (`scripts/build_skill_graph.py
+  --embedding-provider gemini`, defaulting to `EMBEDDING_PROVIDER`) use
   `GeminiSpanEmbedder`: `gemini-embedding-001` via `batchEmbedContents`,
   `taskType=SEMANTIC_SIMILARITY` (symmetric span↔label — not the document
   embedder's `RETRIEVAL_DOCUMENT`), Matryoshka-truncated to 768 and
-  L2-normalized. Stored rows record `skills.embedding_model` so a
-  an   interrupted backfill can skip already-embedded concepts. Runtime linker
+  L2-normalized. Stored rows record `concept.embedding_model` so an
+  interrupted build can skip already-embedded concepts. Runtime linker
   builders (`app/skills/factory.py`, used by profile ingest / extract-job /
-  generate / verify) pick the span embedder from `EMBEDDING_PROVIDER` and
-  trust stored vectors only when `skills.embedding_model` matches; a
-  mismatch falls back to in-memory hashing so tests and offline runs stay
-  on the hashing space. Similarity uses a two-tier rule: link when
+  generate / verify) pick the span embedder from `EMBEDDING_PROVIDER`.
+  The production `PostgresSkillLinker` trusts stored vectors only when
+  `concept.embedding_model` matches; a mismatch **disables the vector
+  stage and logs** (exact + trgm still work) rather than scoring across
+  embedding spaces. The in-memory linker used by tests / evals / the
+  empty-graph seed fallback still rebuilds hashing vectors on mismatch.
+  Similarity uses a two-tier rule: link when
   `best >= high_confidence` regardless of margin, otherwise require
   `best >= threshold` and `best - second >= margin`. Hashing defaults
   stay `0.72 / 0.72 / 0` (back-compat). Gemini defaults are **measured**
@@ -103,18 +106,19 @@ Not inconsistencies — just decisions the docs deliberately leave open that the
   `EXTRACTION_MODEL`). Current GA budget tier; the earlier pick
   `gemini-2.5-flash-lite` retires with the 2.5 series (~Oct 2026). No
   residency/ZDR constraint for postings.
-* **Skill taxonomy** — **ESCO** chosen for the PoC (CSV distribution + public
-  API; see `scripts/load_esco.py` and README). Linker stays behind
-  `app/skills.SkillLinker` with no ESCO types outside the loader. O*NET remains
-  the named alternative. The profile CLI and tests fall back to a small
-  in-repo seed (`app/skills/taxonomy.py`, `esco:<slug>` placeholder IDs, pure
-  data) when the `skills` table is empty; swapping the seed for the loaded
-  ESCO CSV is a data change, not a call-site change. **`extract-job` does not
-  get the seed fallback:** a loaded `skills` table is a hard prerequisite — an
-  empty table is a retryable config error checked before the LLM call
+* **Skill taxonomy** — **canonical ESCO + O*NET graph** (DEF-48; see
+  [`SKILL_GRAPH.md`](SKILL_GRAPH.md)). Linker stays behind
+  `app/skills.SkillLinker` with no vendor types outside the importers.
+  The profile CLI and tests fall back to a small in-repo seed
+  (`app/skills/taxonomy.py`, `seed:<slug>` placeholder IDs, pure data)
+  when the `concept` table is empty; swapping the seed for the built
+  graph is a data change, not a call-site change. **`extract-job` does not
+  get the seed fallback:** a built `concept` table is a hard prerequisite —
+  an empty graph is a retryable config error checked before the LLM call
   (`TASKS_AND_HANDLERS.md`, extract-job), because extraction results are
   cached permanently and would otherwise be skill-less forever. The
-  `jobmatch poc run` live path fails fast on the same check.
+  `jobmatch poc run` live path fails fast on the same check. After a
+  rebuild, `scripts/backfill_skill_ids.py` rewrites stored skill-id arrays.
 * **Migration tooling** — docs say "schema migration" without naming a tool; Alembic is the default for a FastAPI/Postgres stack.
 
 ## 7. Profile ingest LLM/embedding choices (PoC)
@@ -125,7 +129,7 @@ Where profile ingest landed after the merge:
 
 * **Embeddings:** profile documents go through the same `DocumentEmbedder` as `extract-job` (`app/extract/embed.py`), so the shared-provider invariant is enforced by construction. `EMBEDDING_PROVIDER=hashing` (default) writes deterministic 768-d vectors offline; that stand-in is **not** for matching quality. `gemini-embedding-001` caps input at 2,048 tokens and truncates silently, so the synthesized profile doc is trimmed to that budget (oldest roles' bullets dropped first; job docs already cap at 500) and the embedder logs an error if an over-cap doc ever slips through.
 * **Parse LLM:** Gemini via the same `LLM_API_KEY` / `LLM_API_BASE` as extraction (`PROFILE_PARSE_MODEL`, default `gemini-3.5-flash-lite`), with an offline structured parser as `PROFILE_PARSER=fallback`. Unlike job postings, **resume text is personal information** — ZDR/no-training vendor terms (docs/PRIVACY_AND_COMPLIANCE.md) are a production blocker for any parse vendor; until then the fallback parser is the safe default for real resumes.
-* **Skill linking:** the shared `app/skills` linker over the `skills` table (provider-aware builder in `app/skills/factory.py`; see §6), with the in-repo seed fallback described in §6.
+* **Skill linking:** the shared `app/skills` linker over the canonical graph (provider-aware builder in `app/skills/factory.py`; see §6), with the in-repo seed fallback described in §6.
 
 ## 8. generate-resume / verify-resume model split (DEF-23)
 
@@ -137,17 +141,18 @@ Docs require a **different model family** for verify stages 2–3 than the gener
 
 Self-verification within Gemini is intentionally not offered as a fallback: a missing Anthropic key is a retryable config error, not a silent downgrade to the generator family.
 
-## 9. ESCO hierarchy / subsumption-aware skill buckets (deferred follow-up)
+## 9. Hierarchy / subsumption-aware skill buckets (deferred follow-up)
 
 Generic↔specific skill matching is not implemented: a JD asking for
 "relational databases" is satisfied by PostgreSQL on a profile, but not vice
-versa. Doing this properly needs the ESCO broader/narrower relations loaded
-(the current loader takes only the flat skill concepts) and a subsumption rule
-in the `skill_buckets` logic: a job skill counts as matched when the profile
-holds it **or a descendant**; the converse direction (profile generic, job
-specific) is adjacent at best. Until then, generic-vs-specific pairs land in
-the **missing** bucket — conservative and fabrication-safe, but it understates
-matches.
+versa. The home for that policy is now `concept_edge` (ESCO skill→skill
+broader relations are imported as `IS_A`; see [`SKILL_GRAPH.md`](SKILL_GRAPH.md)).
+`app/match/skills.py` still uses the hardcoded sibling-adjacency table until
+a subsumption rule is written and tested: a job skill counts as matched when
+the profile holds it **or a descendant**; the converse direction (profile
+generic, job specific) is adjacent at best. Until then, generic-vs-specific
+pairs land in the **missing** bucket — conservative and fabrication-safe, but
+it understates matches.
 
 Two invariants make the future layer possible; keep them:
 
@@ -155,10 +160,9 @@ Two invariants make the future layer possible; keep them:
   specific product** — the calibrated margin rule enforces this by refusing
   near-tied sibling neighborhoods (MySQL vs PostgreSQL for an ambiguous span),
   and `calibration_spans.json` pins it with `skill_id: null` negatives.
-* Docker / Kubernetes / Terraform and similar tools have **no ESCO concept at
-  all** (checked against the 2026 skills pillar); they stay unlinked until a
-  taxonomy supplement is designed. That is documented behavior, not a linking
-  regression. See §12 for the recall-ceiling this creates on `matched_skills`.
+* Named technologies that ESCO lacks (Docker, Kubernetes, AWS, …) are
+  canonical `technology` concepts founded by O*NET (DEF-48). They are no
+  longer a linking gap; see the resolved note in §12.
 
 ## 10. User deletion / anonymization path is unimplemented
 
@@ -171,11 +175,17 @@ The local UI cut (`docs/UI.md`, "Local UI milestone") ships the match feed, prof
 * **PDF / docx resume export.** The handoff screen offers markdown download and a paste-ready context block only. Real export needs the templating decision already listed in UI.md's open questions (do users choose a template, or do we impose one?) plus a rendering dependency; don't pick a library before picking a templating answer.
 * **Email digest one-click outcome links.** The digest's one-click buttons ("got interview" / "rejected" on applied jobs) are the highest-yield placement for the most valuable label, but they require an authenticated-by-token link design — a signed, expiring, single-purpose token that can write one `outcome` event without a session. That token scheme (scope, expiry, revocation on account deletion) is undesigned; the local milestone has no auth at all, so nothing here constrains it yet. Design it together with the auth/session work, not before.
 
-## 12. ESCO coverage gaps cap `matched_skills` recall
+## 12. ESCO coverage gaps — **resolved (DEF-48)**
 
-Official ESCO has no concept for much of the modern software stack (Docker, Kubernetes, AWS, GCP, React, GraphQL, Rust, Terraform — see `data/esco/README.md`). Those spans drop on both job and profile sides, so Jaccard overlap (30% of the local rerank score) and `matched_skills` have a recall ceiling even after compound-span splitting. A curated taxonomy supplement (local IDs that do not collide with ESCO URIs) is the future option; do not invent speculative links.
+Official ESCO still has no concept for much of the modern software stack
+(Docker, Kubernetes, AWS, GCP, React, GraphQL, Rust, Terraform). Those
+gaps no longer cap `matched_skills` recall: the canonical graph founds
+O*NET-only technologies as first-class `technology` concepts, and
+unmatched O*NET examples become new nodes rather than being forced onto
+an ESCO neighbour. See [`SKILL_GRAPH.md`](SKILL_GRAPH.md). Remaining
+recall work is subsumption over `concept_edge` (§9), not coverage.
 
-`docker-compose.yml` loads the host `.env` via `env_file` so in-container handlers inherit `EMBEDDING_PROVIDER` / `LLM_API_KEY`. Compose `environment:` still overrides `DATABASE_URL` / `QUEUE_IMPL` / `LOCAL_QUEUE_BASE_URL`. Without that `env_file`, the container defaulted to `EMBEDDING_PROVIDER=hashing`, distrusted the stored `gemini-embedding-001` taxonomy vectors, and zeroed the similarity fallback — which produced tiny disjoint skill sets on the first local run.
+`docker-compose.yml` loads the host `.env` via `env_file` so in-container handlers inherit `EMBEDDING_PROVIDER` / `LLM_API_KEY`. Compose `environment:` still overrides `DATABASE_URL` / `QUEUE_IMPL` / `LOCAL_QUEUE_BASE_URL`. Without that `env_file`, the container defaulted to `EMBEDDING_PROVIDER=hashing`. The production linker now **disables the vector stage** on an `embedding_model` mismatch (exact + trgm still run) instead of silently scoring across spaces — rebuild with `scripts/build_skill_graph.py --embedding-provider gemini` to restore vectors.
 
 ## 13. `matches` table should be renamed (`match_results`)
 

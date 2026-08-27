@@ -104,7 +104,7 @@ def stored_vectors_trusted(
     Records with no embedding do not fail the check (they are filled later
     or left without a similarity fallback). Hashing has no ``model``
     attribute, so only ``embedding_model is None`` (or absent vectors)
-    counts as a match — that is how ``upsert_skills`` writes hashing rows.
+    counts as a match — that is how hashing concept rows are written.
     """
     expected = embedder_model_name(embedder)
     for record in records:

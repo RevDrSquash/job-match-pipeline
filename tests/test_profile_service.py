@@ -152,7 +152,7 @@ def test_ingest_writes_profile_skills_embedding_filters(db_session: Session) -> 
     assert bundle.profile_version == 1
     assert bundle.rematch_needed is True
     assert bundle.embedding_dim == 768
-    assert "esco:python" in bundle.skill_ids
+    assert "seed:python" in bundle.skill_ids
     assert bundle.work_history[0]["source"] == "parsed"
     assert bundle.work_history[0]["bullets"][0]["span_id"] == "wh:0:b:0"
     assert bundle.synthesized_doc is not None

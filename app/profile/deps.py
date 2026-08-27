@@ -1,4 +1,4 @@
-"""Build profile-ingest dependencies from settings + the shared skills table."""
+"""Build profile-ingest dependencies from settings + the skill graph."""
 
 from __future__ import annotations
 

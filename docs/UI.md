@@ -278,7 +278,7 @@ This is a debugging and corpus-inspection tool for the PoC, not the conversion f
 
 **Surfaces in this cut:** match feed, job search + detail, profile editor, generation handoff, `/admin`.
 
-Skill buckets in match and generation payloads, and the profile `skills` field, are objects `{id, label}` where `id` is the canonical ESCO concept URI (or PoC `esco:slug`) and `label` is resolved from the `skills` taxonomy table (`canonical_label`). Unknown ids echo the id as the label.
+Skill buckets in match and generation payloads, and the profile `skills` field, are objects `{id, label}` where `id` is the canonical concept UUID (or PoC `seed:<slug>` / leftover `esco:<slug>` awaiting backfill) and `label` is resolved from `concept.canonical_name`. Unknown ids echo the id as the label.
 
 ### UI feedback event vocabulary
 

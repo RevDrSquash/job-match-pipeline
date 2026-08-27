@@ -94,7 +94,7 @@ distinguish, put concrete qualifications in hard and stretch items in nice.
 **Who:** same JDs as extraction, plus the test resume (and later ~20 resumes).
 
 **What:** span the skills, then assign a canonical `skill_id` from the loaded
-ESCO table (or the in-repo `esco:<slug>` seed if the table is empty).
+canonical graph (or the in-repo `seed:<slug>` seed if the graph is empty).
 
 **Schema** (`skill_linking/labels.json` → `items[]` → `spans[]`):
 

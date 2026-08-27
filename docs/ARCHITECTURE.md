@@ -125,7 +125,7 @@ Both sides are transformed into the same shape before comparison. The user's wor
 
 ### 2. Canonical skill linking
 
-Skills on both sides are extracted as spans and linked to a shared taxonomy (ESCO, ~13.9k skills, or O*NET). This solves:
+Skills on both sides are extracted as spans and linked to a shared canonical graph seeded from ESCO + O*NET (see [`SKILL_GRAPH.md`](SKILL_GRAPH.md)). This solves:
 
 * **Surface variants** — "AWS" / "Amazon Web Services" resolve to one entity
 * **Implicit skills** — "worked closely across teams" links to a teamwork competency with no string overlap

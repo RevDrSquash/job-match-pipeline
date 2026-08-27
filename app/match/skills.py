@@ -4,9 +4,10 @@ Matched / adjacent / missing are the three buckets the resume generator
 consumes (docs/TASKS_AND_HANDLERS.md). Linking is already done; this module
 only does set operations plus a small sibling table for adjacency.
 
-Adjacency is label-based so it works with both the in-repo ``esco:<slug>``
-seed and official ESCO concept URIs once the table is loaded. Full ESCO
-hierarchy (true parent/sibling) is deferred with the taxonomy swap.
+Adjacency is label-based so it works with in-repo ``seed:<slug>`` ids,
+legacy ``esco:<slug>`` ids awaiting backfill, and canonical concept UUIDs.
+True parent/sibling adjacency via ``concept_edge`` is deferred
+(docs/OPEN_ISSUES.md §9).
 """
 
 from __future__ import annotations
@@ -74,9 +75,10 @@ def jaccard_overlap(
 
 
 def _fallback_label(skill_id: str) -> str:
-    """Best-effort label when the skills table has no row (seed ids are esco:<slug>)."""
-    if skill_id.startswith("esco:"):
-        return skill_id.split(":", 1)[1].replace("-", " ")
+    """Best-effort label when the graph has no row (seed ids are seed:<slug>)."""
+    for prefix in ("seed:", "esco:"):
+        if skill_id.startswith(prefix):
+            return skill_id.split(":", 1)[1].replace("-", " ")
     return skill_id
 
 

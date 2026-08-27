@@ -171,12 +171,12 @@ def _resolve_suites(suites: Sequence[str] | None) -> list[str]:
 
 
 def _default_linker(settings: Settings, *, offline: bool) -> InMemorySkillLinker:
-    """In-repo seed taxonomy. Sample labels use ``esco:<slug>`` ids.
+    """In-repo seed taxonomy. Sample labels use ``seed:<slug>`` ids.
 
-    Hand labels against a loaded ESCO table should use those concept URIs and
-    pass a linker built from ``load_skill_records`` (same module, different
-    snapshot). Mixing official URIs into the sample set would make
-    ``scan_text`` flag false fabrications.
+    Hand labels against a built skill graph should use those concept UUIDs
+    and pass a linker built from ``load_skill_records`` (same module,
+    different snapshot). Mixing canonical UUIDs into the sample set would
+    make ``scan_text`` flag false fabrications.
 
     Live runs pick the span embedder from ``EMBEDDING_PROVIDER`` (seed labels
     are embedded on the fly — ~100 short strings) so the skill_linking suite
