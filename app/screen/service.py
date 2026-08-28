@@ -1,4 +1,4 @@
-"""screen-job business logic: hard-req overlap + cheap LLM label + optional generate."""
+"""screen-job business logic: hard-req overlap + cheap LLM qualification label."""
 
 from __future__ import annotations
 
@@ -16,10 +16,7 @@ from app.db.models import Job, Match, User, UserProfile
 from app.ingest.events import record_pipeline_event, usage_details
 from app.llm import PermanentLLMError, RetryableLLMError
 from app.privacy import log_profile_access
-from app.queue import TaskQueue
-from app.quota import try_consume_quota
 from app.screen.gate import hard_requirement_overlap, is_rank_label_disagreement
-from app.screen.labels import AUTO_GENERATE_LABEL
 from app.screen.llm import GateLLM, build_gate_llm, log_gate_usage
 
 logger = logging.getLogger(__name__)
@@ -37,13 +34,11 @@ class ScreenResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_usd: float = 0.0
-    generate_enqueued: bool = False
 
 
 def screen_job(
     session: Session,
     payload: dict[str, Any],
-    queue: TaskQueue,
     *,
     llm: GateLLM | None = None,
     settings: Settings | None = None,
@@ -199,27 +194,7 @@ def screen_job(
             cost_usd=usage.cost_usd,
         )
 
-    generate_enqueued = False
     action = "screened"
-    if label == AUTO_GENERATE_LABEL:
-        if try_consume_quota(session, match.user_id):
-            queue.enqueue(
-                "generate-resume",
-                {
-                    "user_id": str(match.user_id),
-                    "job_id": str(match.job_id),
-                    "match_id": str(match.id),
-                },
-            )
-            generate_enqueued = True
-        else:
-            action = "quota_exhausted"
-            logger.info(
-                "screen-job quota_exhausted match_id=%s user_id=%s",
-                match.id,
-                match.user_id,
-            )
-
     record_pipeline_event(
         session,
         stage=STAGE,
@@ -264,13 +239,11 @@ def screen_job(
 
     session.flush()
     logger.info(
-        "screen-job action=%s match_id=%s label=%s hard_req_missing=%s "
-        "generate_enqueued=%s",
+        "screen-job action=%s match_id=%s label=%s hard_req_missing=%s",
         action,
         match.id,
         label,
         overlap.missing_count,
-        generate_enqueued,
     )
     return ScreenResult(
         action=action,
@@ -280,7 +253,6 @@ def screen_job(
         prompt_tokens=usage.prompt_tokens,
         completion_tokens=usage.completion_tokens,
         cost_usd=usage.cost_usd,
-        generate_enqueued=generate_enqueued,
     )
 
 

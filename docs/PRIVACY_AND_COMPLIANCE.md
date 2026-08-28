@@ -93,7 +93,7 @@ Deletion is the requirement most likely to be painful to retrofit. A user deleti
 
 * `user_profiles` — including the synthesized doc and **embedding**
 * Cached context blocks (keyed on `profile_version`)
-* `matches` and `generations` rows
+* `matches`, `generations`, and `match_analyses` rows
 * `pipeline_events` — the training-set table
 * Any derived training data already extracted from `pipeline_events`
 * Prompt caches held by the LLM vendor

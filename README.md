@@ -77,7 +77,7 @@ curl -s -X POST http://localhost:8080/handlers/screen-job \
   -d '{"match_id":"<match uuid>"}'
 ```
 
-Re-POSTing the same `match_id` is a no-op. `clearly_qualified` + remaining quota enqueues `generate-resume` and decrements `users.quota_remaining`. Every label is persisted (`qualification_label` / `screen_reason`). Profile text is never logged.
+Re-POSTing the same `match_id` is a no-op. Every label is persisted (`qualification_label` / `screen_reason`). Screening does not enqueue `generate-resume` or consume quota — generation is manual from the UI. Profile text is never logged.
 
 Generate a resume for a screened match (three skill buckets, cached work-history prefix, claim → source-span map), then verify it:
 

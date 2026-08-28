@@ -89,7 +89,7 @@ Expected-but-alarming log output (e.g. the Gemini AFC warning on every structure
                     │  • cheap LLM screen     │
                     │  → label + reason       │
                     └───────────┬─────────────┘
-                                │ if clearly_qualified AND quota
+                                │ UI Generate (quota-gated, manual)
                     ┌───────────▼─────────────┐
                     │  generate-resume        │
                     │  • cached profile block │

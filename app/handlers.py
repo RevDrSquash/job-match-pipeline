@@ -279,16 +279,13 @@ def create_handlers_router(
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "cost_usd": 0.0,
-                "generate_enqueued": False,
             }
-        buffer = BufferedTaskQueue(queue)
         try:
             with db_session() as session:
                 try:
                     result = screen_job(
                         session,
                         body,
-                        buffer,
                         llm=screen_llm,
                         settings=settings,
                     )
@@ -305,7 +302,6 @@ def create_handlers_router(
             logger.exception("screen-job unexpected failure")
             raise HTTPException(status_code=500, detail="retryable screen-job failure") from None
 
-        buffer.flush()
         return {
             "status": "ok",
             "handler": "screen-job",
@@ -316,7 +312,6 @@ def create_handlers_router(
             "prompt_tokens": result.prompt_tokens,
             "completion_tokens": result.completion_tokens,
             "cost_usd": result.cost_usd,
-            "generate_enqueued": result.generate_enqueued,
         }
 
     @router.post("/handlers/generate-resume", name="generate-resume")

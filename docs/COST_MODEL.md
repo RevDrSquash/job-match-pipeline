@@ -153,7 +153,7 @@ The hybrid gives breakage in our favor (most users won't hit N), a cap against p
 3. **ATS inline content** — skip per-job detail fetches where the list endpoint returns full content
 4. **`SCREEN_SCORE_FLOOR`** — skip the LLM screen on low-rerank matches; they still appear, unscreened
 5. **Compact rerank documents** — avoids the chunking multiplier
-6. **Feedback loop tuning** — `rank_label_disagreement` (high rerank + low label, and the inverse) is what `pipeline_events` pays for; auto-generation only on `clearly_qualified` is the other generation-volume lever
+6. **Feedback loop tuning** — `rank_label_disagreement` (high rerank + low label, and the inverse) is what `pipeline_events` pays for; generation volume is bounded by the manual, quota-gated Generate button
 7. **Fine-tuned small reranker** on accumulated labels — plausibly better *and* cheaper than frontier models used as generic rerankers
 
 ## Open cost questions

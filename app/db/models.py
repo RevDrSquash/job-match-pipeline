@@ -372,6 +372,9 @@ class Match(Base):
     missing_skills: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     generations: Mapped[list[Generation]] = relationship(back_populates="match")
+    analysis: Mapped[MatchAnalysis | None] = relationship(
+        back_populates="match", uselist=False, passive_deletes=True
+    )
 
 
 class Generation(Base):
@@ -389,6 +392,40 @@ class Generation(Base):
     verify_failures: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     match: Mapped[Match] = relationship(back_populates="generations")
+
+
+class MatchAnalysis(Base):
+    """Paid qualification report for one match snapshot.
+
+    match_id is SET NULL provenance so deleting a superseded match row does not
+    destroy the LLM artifact (docs/OPEN_ISSUES.md §14 rationale). user_id
+    CASCADE preserves the account-deletion path.
+    """
+
+    __tablename__ = "match_analyses"
+    __table_args__ = (
+        UniqueConstraint("match_id", name="uq_match_analyses_match_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    match_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("matches.id", ondelete="SET NULL")
+    )
+    analysis: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    match: Mapped[Match | None] = relationship(back_populates="analysis")
 
 
 class PipelineEvent(Base):

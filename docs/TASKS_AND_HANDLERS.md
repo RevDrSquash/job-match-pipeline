@@ -172,16 +172,16 @@ The label is a ranking signal, not a verdict. `confidence` is logged, not persis
 
 **The label measures qualification fit only** — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes: the prompt instructs the model that they must not move the label or drive the reason. Location and comp preferences are the prefilter's job (`user_filters`); logistics mismatches that survive it belong in the planned qualification report, not the label (`docs/OPEN_ISSUES.md` §16).
 
-**Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap screen call saves the full generation cost when we choose not to auto-generate. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
+**Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap screen call keeps qualification labeling cheap; resume generation is manual and quota-gated. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
 
-On `clearly_qualified` **and** remaining quota → enqueue `generate-resume`. Other labels stay on the ranked list for the user to triage. The user can also trigger generation from the UI (`POST /api/matches/{id}/generate`); that path consumes quota too.
+Every label stays on the ranked list for the user to triage. Generation is triggered only from the UI (`POST /api/matches/{id}/generate`); that path consumes quota.
 
 **PoC implementation** (`POST /handlers/screen-job` with `{match_id}` from `match-batch`):
 
 * **Stage 1** is set-math on canonical IDs: `jobs.skill_ids` vs `user_profiles.skill_ids` (`app.screen.hard_requirement_overlap`). Extract does not yet write a separate hard-requirement id list, so the PoC uses the job's linked skill set. Missing count is logged and returned; it never auto-drops.
 * **Stage 2** sends `jobs.synthesized_doc` + `user_profiles.synthesized_doc` to `GATE_MODEL` (default `gemini-3.5-flash-lite`). Structured output `{label, reason, confidence}` with an explicit rubric per label. Condensed profile is personal information — prompt/completion text is never logged; retryable errors are stripped of upstream args. Missing condensed docs write `missing_docs` and leave the label NULL (no fabricated label).
-* `qualification_label` / `screen_reason` are written with `UPDATE … WHERE qualification_label IS NULL`. Redelivery of an already-screened match is a no-op (`skipped_screened`) and does not decrement quota again.
-* Successful screens write `pipeline_events.action = screened` with the label in `details`. `clearly_qualified` + `users.quota_remaining > 0` atomically decrements quota and enqueues `generate-resume` with `{user_id, job_id, match_id}`. `clearly_qualified` with no remaining quota is `quota_exhausted` — the label still lands on the row.
+* `qualification_label` / `screen_reason` are written with `UPDATE … WHERE qualification_label IS NULL`. Redelivery of an already-screened match is a no-op (`skipped_screened`).
+* Successful screens write `pipeline_events.action = screened` with the label in `details`. Screening does not consume quota or enqueue `generate-resume`.
 * Rank/label disagreement is logged both ways as `rank_label_disagreement`: `rerank_score >= RERANK_HIGH_SCORE_THRESHOLD` (default 0.7) with `unqualified` / `minimally_qualified`, or `rerank_score <= RERANK_LOW_SCORE_THRESHOLD` (default 0.3) with `clearly_qualified`. That is the feedback-loop signal (`EVALUATION.md` operational discipline).
 * Every screen LLM call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (needed for `OPEN_ISSUES.md` §1). Permanent failures (missing/invalid `match_id`, unknown match): 2xx. Retryable LLM errors: `pipeline_events` + 5xx. A permanent screen LLM failure returns 2xx (`llm_permanent_failure`) and leaves `qualification_label` NULL — no fabricated label, and the match stays screenable if re-driven.
 
@@ -189,7 +189,7 @@ On `clearly_qualified` **and** remaining quota → enqueue `generate-resume`. Ot
 
 ### `generate-resume`
 
-**Trigger:** `screen-job` on `clearly_qualified` (auto, quota-gated), or `POST /api/matches/{id}/generate` (manual, same quota)
+**Trigger:** `POST /api/matches/{id}/generate` (manual, quota-gated); `verify-resume` may enqueue a single regenerate
 **Volume:** tens per user per month (tier-capped)
 
 Input assembled as **three explicit skill buckets**:
@@ -208,7 +208,7 @@ The missing bucket does the most work. Without an explicit list, a model asked t
 
 **Output:** resume + claim → source-span ID mapping (required by verification).
 
-**PoC implementation** (`POST /handlers/generate-resume` with `{user_id, job_id, match_id}` from `screen-job` or the generate API, plus `attempt` / `violations` on a single regenerate):
+**PoC implementation** (`POST /handlers/generate-resume` with `{user_id, job_id, match_id}` from the generate API, plus `attempt` / `violations` on a single regenerate):
 
 * Generation model: `GENERATION_MODEL` (default `gemini-3.1-pro-preview`). Resume text is personal information — ZDR/no-training vendor terms apply (`docs/PRIVACY_AND_COMPLIANCE.md`); paperwork is deferred. Prompt/completion text is never logged.
 * Input is assembled as the three match buckets (`matched_skills` / `adjacent_skills` / `missing_skills`) plus terminology context (canonical label, JD surface form, resume surface form). No find-replace on skill terms.
@@ -306,6 +306,11 @@ matches
 generations
   id, match_id, resume_doc, claim_source_map
   verify_status, verify_failures[]
+
+match_analyses                         -- paid qualification report; not a child of matches
+  id, user_id (FK users CASCADE), job_id (FK jobs CASCADE),
+  match_id (FK matches SET NULL — provenance; unique, one per match row)
+  analysis jsonb, model, created_at
 
 pipeline_events                        -- the training set
   id, user_id (nullable, no FK — strippable for anonymization), job_id,
