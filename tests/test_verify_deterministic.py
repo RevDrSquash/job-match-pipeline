@@ -5,9 +5,9 @@ from __future__ import annotations
 from app.skills.linker import InMemorySkillLinker, SkillRecord
 from app.verify.deterministic import run_deterministic_checks
 
-PYTHON_ID = "esco:python"
-AWS_ID = "esco:aws"
-K8S_ID = "esco:kubernetes"
+PYTHON_ID = "seed:python"
+AWS_ID = "seed:aws"
+K8S_ID = "seed:kubernetes"
 
 WORK_HISTORY = [
     {

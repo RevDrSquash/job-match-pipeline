@@ -1,12 +1,13 @@
 """PoC seed: common software-engineering skills plus aliases, as SkillRecords.
 
-Full ESCO (~13.9k) is the target taxonomy — load it into the ``skills`` table
-with ``scripts/load_esco.py``. This seed is pure data (no taxonomy vendor
-types); the profile CLI falls back to it only when the table is empty, and
+The canonical ESCO + O*NET graph is the target taxonomy — build it with
+``scripts/build_skill_graph.py``. This seed is pure data (no taxonomy vendor
+types); the profile CLI falls back to it only when the graph is empty, and
 tests use it for offline linking. Swapping it out is a data change, not a
 call-site change.
 
-IDs are `esco:<slug>` placeholders until the official concept URIs are loaded.
+IDs are `seed:<slug>` placeholders so they never collide with ESCO URIs
+or canonical concept UUIDs. The offline eval suite pins these same ids.
 """
 
 from __future__ import annotations
@@ -126,6 +127,6 @@ _SEED: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 
 def seed_records() -> tuple[SkillRecord, ...]:
     return tuple(
-        SkillRecord(id=f"esco:{slug}", canonical_label=label, alt_labels=aliases)
+        SkillRecord(id=f"seed:{slug}", canonical_label=label, alt_labels=aliases)
         for slug, label, aliases in _SEED
     )

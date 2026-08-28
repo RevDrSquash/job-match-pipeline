@@ -1,0 +1,6 @@
+conceptUri,conceptType,skillType,preferredLabel,altLabels,description
+esco:python,KnowledgeSkillCompetence,skill/competence,Python,Python programming,Write software using Python.
+esco:postgresql,KnowledgeSkillCompetence,skill/competence,PostgreSQL,Postgres | psql,Use the PostgreSQL database.
+esco:database,KnowledgeSkillCompetence,knowledge,database management systems,relational databases,Knowledge of database systems.
+esco:jenkins,KnowledgeSkillCompetence,skill/competence,Jenkins (configuration management),,Use Jenkins.
+esco:group,SkillGroup,,digital technologies,,

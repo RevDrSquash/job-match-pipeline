@@ -14,8 +14,7 @@ from app.skills import (
     link_spans,
     normalize_label,
 )
-from app.skills.repository import records_from_mapping_rows
-from scripts.load_esco import parse_skills_csv
+from app.skills.importers.esco import parse_esco_concepts
 
 AWS_ID = "http://data.europa.eu/esco/skill/fixture-aws"
 PYTHON_ID = "http://data.europa.eu/esco/skill/fixture-python"
@@ -134,13 +133,13 @@ def _sibling_linker(
     postgres_vec: tuple[float, ...] = (0.0, 1.0),
 ) -> InMemorySkillLinker:
     mysql = SkillRecord(
-        id="esco:mysql",
+        id="seed:mysql",
         canonical_label="MySQL",
         embedding=(1.0, 0.0),
         embedding_model="fixed",
     )
     postgres = SkillRecord(
-        id="esco:postgresql",
+        id="seed:postgresql",
         canonical_label="PostgreSQL",
         embedding=postgres_vec,
         embedding_model="fixed",
@@ -170,7 +169,7 @@ def test_high_confidence_links_despite_tight_sibling_margin() -> None:
         query_vec=[1.0, 0.0],
         postgres_vec=_TIGHT_POSTGRES,
     )
-    assert linker.link_span(query) == "esco:mysql"
+    assert linker.link_span(query) == "seed:mysql"
 
 
 def test_threshold_plus_margin_links_clear_winner() -> None:
@@ -183,7 +182,7 @@ def test_threshold_plus_margin_links_clear_winner() -> None:
         query=query,
         query_vec=[0.80, 0.60],
     )
-    assert linker.link_span(query) == "esco:mysql"
+    assert linker.link_span(query) == "seed:mysql"
 
 
 def test_near_tied_siblings_below_high_confidence_are_refused() -> None:
@@ -213,14 +212,12 @@ def test_below_threshold_is_refused_even_with_wide_margin() -> None:
     assert linker.link_span(query) is None
 
 
-def test_parse_sample_csv_skips_skill_groups() -> None:
+def test_parse_sample_csv_keeps_skill_groups_source_only() -> None:
     path = Path("tests/fixtures/skills_sample.csv")
-    rows = parse_skills_csv(path)
-    ids = {row["id"] for row in rows}
-    assert AWS_ID in ids
-    assert PYTHON_ID in ids
-    assert "http://data.europa.eu/esco/skill/fixture-group" not in ids
-    records = records_from_mapping_rows(rows)
-    assert {r.id for r in records} == ids
-    aws = next(r for r in records if r.id == AWS_ID)
-    assert "AWS" in aws.alt_labels
+    rows = parse_esco_concepts(path)
+    by_id = {row.external_id: row for row in rows}
+    assert by_id[AWS_ID].concept_type == "skill"
+    assert by_id[PYTHON_ID].concept_type == "skill"
+    # Groups stay in the source layer: parsed, but never founding a concept.
+    assert by_id["http://data.europa.eu/esco/skill/fixture-group"].concept_type is None
+    assert "AWS" in by_id[AWS_ID].alt_labels

@@ -1,0 +1,3 @@
+conceptUri,broaderUri,broaderType
+esco:python,esco:group,broader
+esco:postgresql,esco:database,broader

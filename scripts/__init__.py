@@ -1,1 +1,1 @@
-"""Make ``python -m scripts.load_esco`` work."""
+"""Make ``python -m scripts.build_skill_graph`` (and siblings) work."""

@@ -96,7 +96,7 @@ def _add_user(
             work_history=[
                 {"employer": "Prior Co", "title": "Engineer", "source": "parsed", "bullets": []}
             ],
-            skill_ids=skill_ids or ["esco:python", "esco:postgres"],
+            skill_ids=skill_ids or ["seed:python", "seed:postgres"],
             synthesized_doc=synthesized_doc,
             embedding=_unit_vector(768, 0),
         )
@@ -118,7 +118,7 @@ def _add_job(
         work_arrangement="remote",
         ingested_at=datetime.now(tz=UTC),
         extracted_at=datetime.now(tz=UTC),
-        skill_ids=skill_ids or ["esco:python", "esco:terraform"],
+        skill_ids=skill_ids or ["seed:python", "seed:terraform"],
         synthesized_doc=synthesized_doc,
         embedding=_unit_vector(768, 0),
     )
@@ -143,9 +143,9 @@ def _add_match(
         rerank_score=rerank_score,
         qualification_label=qualification_label,
         screen_reason=screen_reason,
-        matched_skills=["esco:python"],
+        matched_skills=["seed:python"],
         adjacent_skills=[],
-        missing_skills=["esco:terraform"],
+        missing_skills=["seed:terraform"],
     )
     session.add(match)
     session.flush()
@@ -454,8 +454,8 @@ def test_missing_docs_leaves_label_null(db_session: Session) -> None:
 
 @requires_db
 def test_hard_req_missing_still_calls_llm(db_session: Session) -> None:
-    user = _add_user(db_session, skill_ids=["esco:python"])
-    job = _add_job(db_session, skill_ids=["esco:python", "esco:terraform"])
+    user = _add_user(db_session, skill_ids=["seed:python"])
+    job = _add_job(db_session, skill_ids=["seed:python", "seed:terraform"])
     match = _add_match(db_session, user, job)
     queue = RecordingQueue()
     llm = FakeGateLLM(POTENTIAL)

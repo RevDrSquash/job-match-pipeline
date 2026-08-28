@@ -5,6 +5,7 @@
 | Document | Contents |
 | -- | -- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Design principles, target scale, data flow, matching approach, verification design, spend control |
+| [SKILL_GRAPH.md](SKILL_GRAPH.md) | Canonical ESCO + O*NET skill graph: provenance, source pinning, rebuild/reconcile, linking policy, stored-ID backfill |
 | [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | GCP platform choice (Cloud Tasks + Cloud Run + Cloud SQL), Terraform strategy, local development stack |
 | [TASKS_AND_HANDLERS.md](TASKS_AND_HANDLERS.md) | The seven pipeline handlers, queue configuration, data model sketch |
 | [COST_MODEL.md](COST_MODEL.md) | Per-job and per-user cost estimates, pricing structure, cost reduction levers |

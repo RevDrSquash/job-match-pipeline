@@ -17,12 +17,13 @@ from sqlalchemy import bindparam, select, text, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db.models import Match, Skill, UserFilter, UserProfile
+from app.db.models import Match, UserFilter, UserProfile
 from app.ingest.events import record_pipeline_event
 from app.match.rerank import RerankDocument, Reranker, build_reranker
 from app.match.skills import jaccard_overlap, skill_buckets
 from app.match.sql import candidate_query
 from app.queue import TaskQueue
+from app.skills.repository import concept_labels
 
 logger = logging.getLogger(__name__)
 
@@ -385,10 +386,7 @@ def _pairs_for_cycle(session: Session, cycle_at: datetime) -> set[tuple[uuid.UUI
 def _skill_labels(session: Session, skill_ids: set[str]) -> dict[str, str]:
     if not skill_ids:
         return {}
-    rows = session.execute(
-        select(Skill.id, Skill.canonical_label).where(Skill.id.in_(skill_ids))
-    ).all()
-    return {row.id: row.canonical_label for row in rows}
+    return concept_labels(session, skill_ids)
 
 
 def _rank_for_rerank(candidates: list[_Candidate]) -> list[_Candidate]:

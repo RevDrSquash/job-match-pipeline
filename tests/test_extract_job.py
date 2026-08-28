@@ -22,7 +22,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import EMBEDDING_DIM, Job, PipelineEvent, Skill
+from app.db.models import EMBEDDING_DIM, Concept, Job, PipelineEvent
 from app.db.session import get_engine
 from app.extract.embed import GeminiDocumentEmbedder, HashingDocumentEmbedder
 from app.extract.llm import EXTRACTION_SYSTEM_PROMPT, GeminiJobLLM, JobExtraction
@@ -499,13 +499,14 @@ def test_permanent_llm_failure_is_2xx_action(db_session: Session) -> None:
 
 
 @requires_db
-def test_extract_requires_loaded_skills_table(db_session: Session) -> None:
-    """ESCO load is a hard prerequisite: with an empty skills table extract-job
-    refuses (retryable config error) before spending anything on the LLM."""
-    db_session.execute(delete(Skill))
+def test_extract_requires_built_skill_graph(db_session: Session) -> None:
+    """A built skill graph is a hard prerequisite: with an empty concept table
+    extract-job refuses (retryable config error) before any LLM spend."""
+    # concept_alias / concept_edge / source_mapping cascade from concept.
+    db_session.execute(delete(Concept))
     job = _insert_job(db_session, url_hash="extract-no-esco")
     llm = FakeLLM(SAMPLE_EXTRACTION)
-    with pytest.raises(RetryableLLMError, match="skills table is empty"):
+    with pytest.raises(RetryableLLMError, match="concept table is empty"):
         extract_job(
             db_session,
             {"job_id": str(job.id)},

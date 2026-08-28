@@ -6,9 +6,9 @@ from app.skills.enrich import derived_alias_index, parenthetical_bare_label
 from app.skills.linker import InMemorySkillLinker, SkillRecord
 from app.skills.normalize import normalize_label
 
-JAVA_ID = "esco:java"
-JS_ID = "esco:javascript"
-PYTHON_ID = "esco:python"
+JAVA_ID = "seed:java"
+JS_ID = "seed:javascript"
+PYTHON_ID = "seed:python"
 
 
 def test_parenthetical_bare_label_strips_trailing_disambiguator() -> None:
@@ -31,20 +31,20 @@ def test_derived_alias_indexes_bare_form() -> None:
 
 
 def test_short_stripped_form_is_skipped() -> None:
-    records = (SkillRecord(id="esco:c", canonical_label="C (computer programming)"),)
+    records = (SkillRecord(id="seed:c", canonical_label="C (computer programming)"),)
     assert derived_alias_index(records, occupied={}) == {}
 
     linker = InMemorySkillLinker(records, embedder=None)
     assert linker.link_span("C") is None
-    assert linker.link_span("C (computer programming)") == "esco:c"
+    assert linker.link_span("C (computer programming)") == "seed:c"
 
 
 def test_ambiguous_stripped_form_is_skipped() -> None:
     # "go" is both ≤2 chars and in AMBIGUOUS_SCAN_TERMS; "spark" is longer
     # but still too ambiguous to derive.
     records = (
-        SkillRecord(id="esco:go", canonical_label="Go (computer programming)"),
-        SkillRecord(id="esco:spark", canonical_label="Spark (data processing)"),
+        SkillRecord(id="seed:go", canonical_label="Go (computer programming)"),
+        SkillRecord(id="seed:spark", canonical_label="Spark (data processing)"),
     )
     assert derived_alias_index(records, occupied={}) == {}
 
@@ -55,31 +55,31 @@ def test_ambiguous_stripped_form_is_skipped() -> None:
 
 def test_derived_loses_to_real_label() -> None:
     records = (
-        SkillRecord(id="esco:python-real", canonical_label="Python"),
+        SkillRecord(id="seed:python-real", canonical_label="Python"),
         SkillRecord(
-            id="esco:python-other",
+            id="seed:python-other",
             canonical_label="Python (numerical analysis)",
         ),
     )
-    occupied = {normalize_label("Python"): "esco:python-real"}
+    occupied = {normalize_label("Python"): "seed:python-real"}
     assert derived_alias_index(records, occupied=occupied) == {}
 
     linker = InMemorySkillLinker(records, embedder=None)
-    assert linker.link_span("Python") == "esco:python-real"
-    assert linker.link_span("Python (numerical analysis)") == "esco:python-other"
+    assert linker.link_span("Python") == "seed:python-real"
+    assert linker.link_span("Python (numerical analysis)") == "seed:python-other"
 
 
 def test_contested_derived_form_is_claimed_by_neither() -> None:
     records = (
-        SkillRecord(id="esco:foo-a", canonical_label="Foo (alpha)"),
-        SkillRecord(id="esco:foo-b", canonical_label="Foo (beta)"),
+        SkillRecord(id="seed:foo-a", canonical_label="Foo (alpha)"),
+        SkillRecord(id="seed:foo-b", canonical_label="Foo (beta)"),
     )
     assert derived_alias_index(records, occupied={}) == {}
 
     linker = InMemorySkillLinker(records, embedder=None)
     assert linker.link_span("Foo") is None
-    assert linker.link_span("Foo (alpha)") == "esco:foo-a"
-    assert linker.link_span("Foo (beta)") == "esco:foo-b"
+    assert linker.link_span("Foo (alpha)") == "seed:foo-a"
+    assert linker.link_span("Foo (beta)") == "seed:foo-b"
 
 
 def test_java_javascript_containment() -> None:

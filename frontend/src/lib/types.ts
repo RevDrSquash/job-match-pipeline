@@ -132,6 +132,70 @@ export type JobDetail = JobSummary & {
   nice_to_haves: string[];
 };
 
+export type SkillStats = {
+  concepts_by_type: Record<string, number>;
+  aliases_by_type: Record<string, number>;
+  source_concepts: Array<{
+    source: string;
+    source_version: string;
+    count: number;
+  }>;
+  edges: {
+    canonical: number;
+    source: number;
+  };
+};
+
+export type SkillSearchHit = {
+  id: string;
+  label: string;
+  concept_type: string;
+  matched_alias: string;
+};
+
+export type SkillSourceRef = {
+  source: string;
+  source_version: string;
+  external_id: string;
+  name: string;
+  mapping_type: string;
+  mapping_method: string;
+  confidence: number;
+};
+
+export type SkillDetail = {
+  id: string;
+  canonical_name: string;
+  normalized_name: string;
+  concept_type: string;
+  status: string;
+  description: string | null;
+  aliases: Record<string, string[]>;
+  sources: SkillSourceRef[];
+};
+
+export type SkillGraphNode = {
+  id: string;
+  label: string;
+  concept_type: string;
+  layer: "canonical" | "source";
+  member_count?: number;
+};
+
+export type SkillGraphEdge = {
+  source: string;
+  target: string;
+  predicate: string;
+  layer: "canonical" | "source";
+  confidence: number;
+};
+
+export type SkillGraphPayload = {
+  nodes: SkillGraphNode[];
+  edges: SkillGraphEdge[];
+  truncated: boolean;
+};
+
 export type AdminMetrics = {
   collected_at: string;
   funnel: Record<string, number>;

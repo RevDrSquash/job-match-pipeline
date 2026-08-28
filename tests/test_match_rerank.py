@@ -73,22 +73,22 @@ def test_build_reranker_defaults_to_cosine() -> None:
 
 def test_skill_buckets_matched_adjacent_missing() -> None:
     matched, adjacent, missing = skill_buckets(
-        ["esco:python", "esco:terraform", "esco:rust"],
-        ["esco:python", "esco:cloudformation"],
+        ["seed:python", "seed:terraform", "seed:rust"],
+        ["seed:python", "seed:cloudformation"],
     )
-    assert matched == ["esco:python"]
-    assert adjacent == ["esco:terraform"]
-    assert missing == ["esco:rust"]
+    assert matched == ["seed:python"]
+    assert adjacent == ["seed:terraform"]
+    assert missing == ["seed:rust"]
 
 
 def test_skill_buckets_sql_adjacent_to_postgresql() -> None:
     matched, adjacent, missing = skill_buckets(
-        ["esco:sql"],
-        ["esco:postgresql"],
-        labels_for={"esco:sql": "SQL", "esco:postgresql": "PostgreSQL"},
+        ["seed:sql"],
+        ["seed:postgresql"],
+        labels_for={"seed:sql": "SQL", "seed:postgresql": "PostgreSQL"},
     )
     assert matched == []
-    assert adjacent == ["esco:sql"]
+    assert adjacent == ["seed:sql"]
     assert missing == []
 
 

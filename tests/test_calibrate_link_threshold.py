@@ -29,8 +29,8 @@ def test_load_labeled_spans_merges_and_dedups(tmp_path: Path) -> None:
             "items": [
                 {
                     "spans": [
-                        {"text": "Python", "skill_id": "esco:python"},
-                        {"text": "  ", "skill_id": "esco:noise"},
+                        {"text": "Python", "skill_id": "seed:python"},
+                        {"text": "  ", "skill_id": "seed:noise"},
                     ]
                 }
             ]
@@ -40,14 +40,14 @@ def test_load_labeled_spans_merges_and_dedups(tmp_path: Path) -> None:
         tmp_path / "calibration_spans.json",
         {
             "spans": [
-                {"text": "python", "skill_id": "esco:python"},
+                {"text": "python", "skill_id": "seed:python"},
                 {"text": "relational databases", "skill_id": None},
             ]
         },
     )
     spans = load_labeled_spans([labels, extra])
     assert spans == [
-        LabeledSpan(text="Python", gold_id="esco:python"),
+        LabeledSpan(text="Python", gold_id="seed:python"),
         LabeledSpan(text="relational databases", gold_id=None),
     ]
 

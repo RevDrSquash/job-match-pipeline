@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), ESCO skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app + web UI), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, `jobmatch evals run` for the four non-negotiable evals, and a local single-user Next.js UI (see [Local UI](#local-ui)). No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), canonical ESCO + O*NET skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app + web UI), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, `jobmatch evals run` for the four non-negotiable evals, and a local single-user Next.js UI (see [Local UI](#local-ui)). No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `ex
 
 ## Quick start (Docker)
 
-First-run sequence. Details: [Skill taxonomy](#skill-taxonomy-esco), [Seed corpus](#seed-corpus-500-postings), [Profile CLI](#profile-cli-poc).
+First-run sequence. Details: [Skill graph](#skill-graph-esco--onet), [Seed corpus](#seed-corpus-500-postings), [Profile CLI](#profile-cli-poc).
 
 ```bash
 cp .env.example .env
@@ -26,7 +26,7 @@ docker compose up --build
 # In another terminal (or after db is healthy):
 pip install -e '.[dev]'
 alembic upgrade head
-python -m scripts.load_esco
+python -m scripts.build_skill_graph
 python -m app.seed --target 500
 jobmatch profile ingest tests/fixtures/sample_resume.md --fallback-parser --json
 jobmatch match run --mode incremental
@@ -54,10 +54,10 @@ python -m app.seed --target 500
 
 The seed walks boards sequentially (low concurrency), upserts on `url_hash`, and stops near the target. Re-running is a no-op once the corpus is filled. After adding `jobs.raw_jd_html`, backfill display HTML for existing rows with `python -m app.seed --backfill-html` (one list request per known board; no new jobs). Postings that have left the board stay on the plain-text fallback. No LLM calls on this path.
 
-Extract a seeded job (lazy; cached on `extracted_at`). **Load the ESCO taxonomy first** (see [Skill taxonomy](#skill-taxonomy-esco)) — `extract-job` refuses to run against an empty `skills` table (retryable 503, checked before any LLM spend):
+Extract a seeded job (lazy; cached on `extracted_at`). **Build the skill graph first** (see [Skill graph](#skill-graph-esco--onet)) — `extract-job` refuses to run against an empty `concept` table (retryable 503, checked before any LLM spend):
 
 ```bash
-# Hard prerequisite: python -m scripts.load_esco (once, idempotent).
+# Hard prerequisite: python -m scripts.build_skill_graph (once, idempotent).
 # Live extraction needs LLM_API_KEY or GEMINI_API_KEY.
 # EMBEDDING_PROVIDER=hashing (default) writes 768-d hashing vectors offline;
 # set EMBEDDING_PROVIDER=gemini to use gemini-embedding-001 (768-d truncation).
@@ -131,7 +131,7 @@ Incremental matches jobs ingested or extracted since the last completed cycle ag
 
 ## Local UI
 
-Single-user Next.js app in [`frontend/`](frontend/) — match feed, job search at `/jobs`, profile editor, generation handoff, and an admin dashboard at `/admin`. It talks to the user-facing `/api/*` router on the FastAPI app (distinct from the internal `/handlers/*` workers); Next.js rewrites proxy `/api/*` to `API_BASE_URL` (default `http://localhost:8080`), so there is no CORS setup. Design: [`docs/UI.md`](docs/UI.md), "Local UI milestone".
+Single-user Next.js app in [`frontend/`](frontend/) — match feed, job search at `/jobs`, skill graph explorer at `/skills`, profile editor, generation handoff, and an admin dashboard at `/admin`. It talks to the user-facing `/api/*` router on the FastAPI app (distinct from the internal `/handlers/*` workers); Next.js rewrites proxy `/api/*` to `API_BASE_URL` (default `http://localhost:8080`), so there is no CORS setup. Design: [`docs/UI.md`](docs/UI.md), "Local UI milestone".
 
 **Via Docker:** `docker compose up --build` includes the `web` service — open http://localhost:3100.
 
@@ -179,8 +179,8 @@ Fabrication is a hard gate: any fabricated claim fails the suite.
 One command seeds the corpus, ingests the test profile, cycles `match-batch` until extracts and screens drain through the local queue, runs the four eval suites, and writes [`docs/POC_RESULTS.md`](docs/POC_RESULTS.md):
 
 ```bash
-# Hard prerequisite for the live path: python -m scripts.load_esco (the runner
-# fails fast if the skills table is empty).
+# Hard prerequisite for the live path: python -m scripts.build_skill_graph
+# (the runner fails fast if the concept table is empty).
 # Measurement run needs EMBEDDING_PROVIDER=gemini and LLM_API_KEY / GEMINI_API_KEY.
 # VERIFY_API_KEY / ANTHROPIC_API_KEY is required for verify-resume stages 2–3.
 jobmatch poc run --quota 3
@@ -189,7 +189,7 @@ jobmatch poc report   # rewrite the report from the current DB + latest eval JSO
 
 The default profile is `tests/fixtures/sample_resume.md` (same persona as `evals/sets/v1`). Do not commit a real resume. `QUEUE_IMPL=local` is required — the runner POSTs handlers; it does not call generate/verify functions directly.
 
-Skill linking uses the shared `skills` table (load it with `scripts/load_esco.py`, below). **The ESCO load is a hard prerequisite for the pipeline:** `extract-job` refuses to run against an empty `skills` table (retryable 503, checked before any LLM spend) because it would cache permanently skill-less extractions. The profile CLI alone still falls back to a small built-in seed taxonomy for offline use, but load ESCO before running any live extraction or match cycle. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
+Skill linking uses the canonical graph (build it with `scripts/build_skill_graph.py`, below). **The graph build is a hard prerequisite for the pipeline:** `extract-job` refuses to run against an empty `concept` table (retryable 503, checked before any LLM spend) because it would cache permanently skill-less extractions. The profile CLI alone still falls back to a small built-in seed taxonomy (`seed:<slug>` IDs) for offline use, but build the graph before running any live extraction or match cycle. After a rebuild, rewrite stored skill-id arrays with `python -m scripts.backfill_skill_ids`. Job and profile documents must share the same `EMBEDDING_PROVIDER` — the two vector spaces are not comparable across providers.
 
 Resume text is never written to application logs or exception traces. `profile show` prints the structured result to stdout for manual review.
 
@@ -226,39 +226,39 @@ pytest
 ruff check .
 ```
 
-## Skill taxonomy (ESCO)
+## Skill graph (ESCO + O*NET)
 
 Canonical skill linking is shared by `extract-job` and profile parsing
-(`app/skills/`). The PoC taxonomy is **ESCO** (~14k skills); the linker is
-taxonomy-agnostic so O*NET can replace it later.
+(`app/skills/`). The taxonomy is a source-agnostic knowledge graph seeded
+from pinned ESCO v1.2.1 plus O*NET 31.0 Software Skills. Design,
+provenance, rebuild, and linking policy: [`docs/SKILL_GRAPH.md`](docs/SKILL_GRAPH.md).
 
-**License:** ESCO data is published by the European Commission under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (see the
-[ESCO copyright notice](https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences)).
-Attribute “ESCO © European Union” when redistributing derived data. The skills
-pillar also incorporates O*NET (USDOL/ETA, CC BY 4.0) and Canadian glossary
-elements — credit those sources as required by the notice.
+**License:** ESCO © European Union, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+(see the [ESCO copyright notice](https://esco.ec.europa.eu/en/copyright-notice-esco-skills-competences)).
+O*NET 31.0 Database by USDOL/ETA, CC BY 4.0; O*NET® is a USDOL/ETA
+trademark. Attribute both when redistributing derived data.
 
-Load into Postgres (idempotent upsert on skill id):
+Build into Postgres (idempotent upsert on pinned source versions):
 
 ```bash
-# Preferred: official CSV from https://esco.ec.europa.eu/en/use-esco/download
-# (classification / en / csv → skills_en.csv)
-python -m scripts.load_esco --csv /path/to/skills_en.csv
+# Requires data/esco/skills_en.csv from the ESCO portal download
+# (https://esco.ec.europa.eu/en/use-esco/download — classification / en / csv).
+# O*NET Software Skills downloads automatically into data/onet/.
+python -m scripts.build_skill_graph
 
-# Or fetch via the public ESCO API and cache data/esco/skills_en.csv
-python -m scripts.load_esco
+# Live linker-space vectors (default: EMBEDDING_PROVIDER):
+python -m scripts.build_skill_graph --embedding-provider gemini
+
+# After a rebuild, rewrite stored job/profile/match skill-id arrays:
+python -m scripts.backfill_skill_ids
 ```
 
-Re-running the loader updates existing rows; it does not duplicate. Pass
-`--embedding-provider hashing|gemini` to choose the taxonomy-vector
-embedder (default: `EMBEDDING_PROVIDER`). `gemini` uses
-`gemini-embedding-001` / `SEMANTIC_SIMILARITY` and skips rows that
-already have a matching `embedding_model` so a free-tier backfill can
-resume. Pass `--no-embeddings` to skip vectors (exact/alias linking
-still works). Curated everyday aliases live in
-`data/esco/alias_overrides.json` and are merged into `alt_labels` on
-every load. See `scripts/load_esco.py` for flags.
+Re-running the builder converges; it does not duplicate. Pass
+`--embedding-provider hashing|gemini` to choose the concept-vector
+embedder. `gemini` uses `gemini-embedding-001` / `SEMANTIC_SIMILARITY`.
+Pass `--no-embeddings` to skip vectors (exact/alias/trgm linking still
+works). Curated everyday aliases live in `data/esco/alias_overrides.json`.
+See `scripts/build_skill_graph.py` and `docs/SKILL_GRAPH.md` for flags.
 
 ## Conventions (baked into handlers)
 

@@ -1,7 +1,7 @@
 {
   "version": "v1",
   "taxonomy": "ESCO",
-  "notes": "Curated everyday aliases for official ESCO concept URIs, merged into alt_labels by scripts/load_esco.py at upsert time. Phrasing comes from common software-engineering JDs, not the fixture resume. preferred_label is provenance only (must match the taxonomy row). Docker, Kubernetes, Terraform, and AWS have no ESCO concept and are intentionally omitted.",
+  "notes": "Curated everyday aliases for official ESCO concept URIs, stored as provenance-bearing concept_alias rows by the graph importer. Phrasing comes from common software-engineering JDs, not the fixture resume. preferred_label is provenance only (must match the taxonomy row). Docker, Kubernetes, Terraform, and AWS have no ESCO concept and are supplied by O*NET reconciliation.",
   "overrides": [
     {
       "uri": "http://data.europa.eu/esco/skill/dba46f87-0831-49cd-a1c7-340a653c0221",

@@ -10,7 +10,7 @@ where those cutoffs should sit for a given span-embedder provider:
    (``evals/sets/v1/skill_linking/labels.json``, explicit and implicit) plus the
    calibration-only file ``calibration_spans.json`` (sibling-dense cases and
    ``skill_id=null`` negatives; kept out of the frozen v1 eval set) — against the
-   in-repo seed taxonomy (the space the labels' ``esco:<slug>`` ids live in).
+   in-repo seed taxonomy (the space the labels' ``seed:<slug>`` ids live in).
 2. Reports true/false score distributions, then grid-sweeps
    (high_confidence, threshold, margin) and suggests the triple with zero false
    links, maximal recall, and the widest safety slack to a decision flip.
@@ -344,11 +344,12 @@ def spot_check_db(
     records = load_skill_records(session)
     embedded = [r for r in records if r.embedding is not None]
     if not embedded:
-        return "spot-check: skills table has no stored vectors — skipped"
+        return "spot-check: concept table has no stored vectors — skipped"
     if not stored_vectors_trusted(records, embedder):
         return (
-            "spot-check: stored skills.embedding_model does not match the "
-            "requested provider — reload with scripts/load_esco.py first; skipped"
+            "spot-check: stored concept.embedding_model does not match the "
+            "requested provider — rebuild with scripts/build_skill_graph.py "
+            "first; skipped"
         )
 
     rows = session.execute(

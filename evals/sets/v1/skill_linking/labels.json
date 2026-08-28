@@ -9,16 +9,16 @@
       "document_kind": "jd",
       "source_file": "../extraction/jds/sample_senior_backend.txt",
       "spans": [
-        {"text": "Python", "skill_id": "esco:python", "mention": "explicit"},
-        {"text": "FastAPI", "skill_id": "esco:fastapi", "mention": "explicit"},
-        {"text": "Django", "skill_id": "esco:django", "mention": "explicit"},
-        {"text": "PostgreSQL", "skill_id": "esco:postgresql", "mention": "explicit"},
-        {"text": "Amazon Web Services", "skill_id": "esco:aws", "mention": "explicit"},
-        {"text": "AWS", "skill_id": "esco:aws", "mention": "explicit"},
-        {"text": "Kubernetes", "skill_id": "esco:kubernetes", "mention": "explicit"},
-        {"text": "Terraform", "skill_id": "esco:terraform", "mention": "explicit"},
-        {"text": "Redis", "skill_id": "esco:redis", "mention": "explicit"},
-        {"text": "distributed systems", "skill_id": "esco:system-design", "mention": "explicit"}
+        {"text": "Python", "skill_id": "seed:python", "mention": "explicit"},
+        {"text": "FastAPI", "skill_id": "seed:fastapi", "mention": "explicit"},
+        {"text": "Django", "skill_id": "seed:django", "mention": "explicit"},
+        {"text": "PostgreSQL", "skill_id": "seed:postgresql", "mention": "explicit"},
+        {"text": "Amazon Web Services", "skill_id": "seed:aws", "mention": "explicit"},
+        {"text": "AWS", "skill_id": "seed:aws", "mention": "explicit"},
+        {"text": "Kubernetes", "skill_id": "seed:kubernetes", "mention": "explicit"},
+        {"text": "Terraform", "skill_id": "seed:terraform", "mention": "explicit"},
+        {"text": "Redis", "skill_id": "seed:redis", "mention": "explicit"},
+        {"text": "distributed systems", "skill_id": "seed:system-design", "mention": "explicit"}
       ]
     },
     {
@@ -26,10 +26,10 @@
       "document_kind": "jd",
       "source_file": "jds/implicit_teamwork.txt",
       "spans": [
-        {"text": "work closely across teams", "skill_id": "esco:teamwork", "mention": "implicit"},
-        {"text": "Kubernetes", "skill_id": "esco:kubernetes", "mention": "explicit"},
-        {"text": "CloudFormation", "skill_id": "esco:cloudformation", "mention": "explicit"},
-        {"text": "Partner across product, design, and data", "skill_id": "esco:teamwork", "mention": "implicit"}
+        {"text": "work closely across teams", "skill_id": "seed:teamwork", "mention": "implicit"},
+        {"text": "Kubernetes", "skill_id": "seed:kubernetes", "mention": "explicit"},
+        {"text": "CloudFormation", "skill_id": "seed:cloudformation", "mention": "explicit"},
+        {"text": "Partner across product, design, and data", "skill_id": "seed:teamwork", "mention": "implicit"}
       ]
     },
     {
@@ -37,16 +37,16 @@
       "document_kind": "resume",
       "source_file": "resumes/sample_resume.md",
       "spans": [
-        {"text": "Python", "skill_id": "esco:python", "mention": "explicit"},
-        {"text": "PostgreSQL", "skill_id": "esco:postgresql", "mention": "explicit"},
-        {"text": "Docker", "skill_id": "esco:docker", "mention": "explicit"},
-        {"text": "Kubernetes", "skill_id": "esco:kubernetes", "mention": "explicit"},
-        {"text": "AWS", "skill_id": "esco:aws", "mention": "explicit"},
-        {"text": "Terraform", "skill_id": "esco:terraform", "mention": "explicit"},
-        {"text": "REST APIs", "skill_id": "esco:rest-api", "mention": "explicit"},
-        {"text": "GitHub Actions", "skill_id": "esco:github-actions", "mention": "explicit"},
-        {"text": "system design", "skill_id": "esco:system-design", "mention": "explicit"},
-        {"text": "Mentored three engineers", "skill_id": "esco:mentoring", "mention": "implicit"}
+        {"text": "Python", "skill_id": "seed:python", "mention": "explicit"},
+        {"text": "PostgreSQL", "skill_id": "seed:postgresql", "mention": "explicit"},
+        {"text": "Docker", "skill_id": "seed:docker", "mention": "explicit"},
+        {"text": "Kubernetes", "skill_id": "seed:kubernetes", "mention": "explicit"},
+        {"text": "AWS", "skill_id": "seed:aws", "mention": "explicit"},
+        {"text": "Terraform", "skill_id": "seed:terraform", "mention": "explicit"},
+        {"text": "REST APIs", "skill_id": "seed:rest-api", "mention": "explicit"},
+        {"text": "GitHub Actions", "skill_id": "seed:github-actions", "mention": "explicit"},
+        {"text": "system design", "skill_id": "seed:system-design", "mention": "explicit"},
+        {"text": "Mentored three engineers", "skill_id": "seed:mentoring", "mention": "implicit"}
       ]
     }
   ]

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import Company, Generation, Job, Match, PipelineEvent, Skill, User, UserProfile
+from app.db.models import Company, Concept, Generation, Job, Match, PipelineEvent, User, UserProfile
 from app.extract.embed import HashingDocumentEmbedder
 from app.ingest.events import record_pipeline_event
 from app.main import create_app
@@ -115,6 +115,8 @@ def _add_match(
     screen_reason: str | None = None,
     cycle_at: datetime | None = None,
     rerank_score: float | None = 0.82,
+    matched_skills: list[str] | None = None,
+    missing_skills: list[str] | None = None,
 ) -> Match:
     match = Match(
         user_id=user.id,
@@ -123,9 +125,9 @@ def _add_match(
         rerank_score=rerank_score,
         qualification_label=qualification_label,
         screen_reason=screen_reason,
-        matched_skills=["esco:python"],
+        matched_skills=matched_skills if matched_skills is not None else ["seed:python"],
         adjacent_skills=[],
-        missing_skills=["esco:terraform"],
+        missing_skills=missing_skills if missing_skills is not None else ["seed:terraform"],
     )
     db_session.add(match)
     db_session.flush()
@@ -344,10 +346,10 @@ def test_get_generation(api_client: TestClient, db_session: Session) -> None:
     assert body["verify_status"] == "passed"
     assert body["job"]["url"] == "https://boards.example/j/99"
     assert body["match"]["matched_skills"] == [
-        {"id": "esco:python", "label": "esco:python"}
+        {"id": "seed:python", "label": "seed:python"}
     ]
     assert body["match"]["missing_skills"] == [
-        {"id": "esco:terraform", "label": "esco:terraform"}
+        {"id": "seed:terraform", "label": "seed:terraform"}
     ]
     assert body["ui"]["applied_at"] is None
 
@@ -397,25 +399,47 @@ def test_skill_labels_resolve_from_taxonomy(
 ) -> None:
     user = _seed_user(db_session)
     job = _add_company_job(db_session)
+    python_id = uuid.uuid5(uuid.NAMESPACE_URL, "api-label-test-python")
+    terraform_id = uuid.uuid5(uuid.NAMESPACE_URL, "api-label-test-terraform")
     db_session.add_all(
         [
-            Skill(id="esco:python", canonical_label="Python", alt_labels=[]),
-            Skill(id="esco:terraform", canonical_label="Terraform", alt_labels=[]),
+            Concept(
+                id=python_id,
+                canonical_name="Python",
+                normalized_name="python",
+                concept_type="skill",
+            ),
+            Concept(
+                id=terraform_id,
+                canonical_name="Terraform",
+                normalized_name="terraform",
+                concept_type="technology",
+            ),
         ]
     )
-    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
+    match = _add_match(
+        db_session,
+        user,
+        job,
+        qualification_label="potentially_qualified",
+        matched_skills=[str(python_id)],
+        missing_skills=[str(terraform_id)],
+    )
+    profile_row = db_session.get(UserProfile, user.id)
+    assert profile_row is not None
+    profile_row.skill_ids = [str(python_id)]
     db_session.flush()
 
     response = api_client.get("/api/matches", params={"user_id": str(user.id)})
     assert response.status_code == 200
     row = next(item for item in response.json()["matches"] if item["id"] == str(match.id))
-    assert row["matched_skills"] == [{"id": "esco:python", "label": "Python"}]
-    assert row["missing_skills"] == [{"id": "esco:terraform", "label": "Terraform"}]
+    assert row["matched_skills"] == [{"id": str(python_id), "label": "Python"}]
+    assert row["missing_skills"] == [{"id": str(terraform_id), "label": "Terraform"}]
 
     profile = api_client.get("/api/profile", params={"user_id": str(user.id)})
     assert profile.status_code == 200
     profile_body = profile.json()
-    assert {"id": "esco:python", "label": "Python"} in profile_body["skills"]
+    assert {"id": str(python_id), "label": "Python"} in profile_body["skills"]
 
 
 @requires_db
@@ -429,7 +453,7 @@ def test_skill_labels_fall_back_to_id_when_unknown(
     response = api_client.get("/api/matches", params={"user_id": str(user.id)})
     assert response.status_code == 200
     row = next(item for item in response.json()["matches"] if item["id"] == str(match.id))
-    assert row["matched_skills"][0] == {"id": "esco:python", "label": "esco:python"}
+    assert row["matched_skills"][0] == {"id": "seed:python", "label": "seed:python"}
 
 
 @requires_db

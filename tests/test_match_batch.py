@@ -58,7 +58,7 @@ def _add_user(
             work_history=[
                 {"employer": "Prior Co", "title": "Engineer", "source": "parsed", "bullets": []}
             ],
-            skill_ids=skill_ids or ["esco:python", "esco:cloudformation"],
+            skill_ids=skill_ids or ["seed:python", "seed:cloudformation"],
             synthesized_doc="Title: Backend Engineer\nSkills: Python",
             embedding=embedding if embedding is not None else _unit_vector(768, 0),
             rematch_needed=rematch_needed,
@@ -110,7 +110,7 @@ def _add_job(
         seniority=seniority,
     )
     if extracted and job.skill_ids is None:
-        job.skill_ids = ["esco:python", "esco:terraform"]
+        job.skill_ids = ["seed:python", "seed:terraform"]
     if extracted and job.embedding is None:
         job.embedding = _unit_vector(768, 0)
     session.add(job)
@@ -154,7 +154,7 @@ def test_two_cycle_deferral_for_unextracted_jobs(db_session: Session) -> None:
     assert db_session.scalars(select(Match).where(Match.user_id == user.id)).all() == []
 
     job.extracted_at = datetime(2026, 8, 17, 10, 0, 1, tzinfo=UTC)
-    job.skill_ids = ["esco:python", "esco:terraform"]
+    job.skill_ids = ["seed:python", "seed:terraform"]
     job.synthesized_doc = "Title: Backend Engineer\nSkills: Python, Terraform"
     job.embedding = _unit_vector(768, 0)
     db_session.flush()
@@ -183,9 +183,9 @@ def test_two_cycle_deferral_for_unextracted_jobs(db_session: Session) -> None:
     assert match.user_id == user.id
     assert match.job_id == job.id
     assert match.rerank_score is not None
-    assert match.matched_skills == ["esco:python"]
-    assert match.adjacent_skills == ["esco:terraform"]
-    assert "esco:python" not in (match.missing_skills or [])
+    assert match.matched_skills == ["seed:python"]
+    assert match.adjacent_skills == ["seed:terraform"]
+    assert "seed:python" not in (match.missing_skills or [])
 
     events = db_session.scalars(
         select(PipelineEvent).where(PipelineEvent.stage == "match-batch")
@@ -508,7 +508,7 @@ def test_match_batch_http_two_cycle(apply_migrations: None) -> None:
                 job = session.get(Job, job_id)
                 assert job is not None
                 job.extracted_at = datetime(2026, 8, 17, 16, 0, 1, tzinfo=UTC)
-                job.skill_ids = ["esco:python"]
+                job.skill_ids = ["seed:python"]
                 job.synthesized_doc = "Title: Backend Engineer"
                 job.embedding = _unit_vector(768, 0)
                 session.commit()

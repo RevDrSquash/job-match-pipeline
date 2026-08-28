@@ -13,14 +13,15 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import Job, Skill
+from app.db.models import Concept, Job
 from app.extract.embed import DocumentEmbedder, log_embedding_usage
 from app.extract.llm import MIN_RAW_JD_CHARS, JobLLM, log_llm_usage
 from app.extract.synthesize import build_synthesized_doc
 from app.ingest.events import record_pipeline_event, usage_details
 from app.llm import PermanentLLMError, RetryableLLMError
 from app.skills.factory import linker_from_session
-from app.skills.linker import InMemorySkillLinker, SkillLinker, SpanLinkReport
+from app.skills.linker import SkillLinker, SpanLinkReport
+from app.skills.repository import concept_labels
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +80,16 @@ def extract_job(
         session.flush()
         return ExtractResult(action="unparseable", job_id=str(job.id))
 
-    # ESCO load is a hard prerequisite (checked before any LLM spend): an
-    # empty skills table would cache a permanently skill-less extraction
-    # (extracted_at never resets), silently breaking hard-req overlap and the
-    # matched/adjacent/missing buckets. Retryable config error, like a missing
-    # API key — match-batch re-enqueues on later cycles once ESCO is loaded.
-    if linker is None and not _skills_table_populated(session):
+    # A built skill graph is a hard prerequisite (checked before any LLM
+    # spend): an empty concept table would cache a permanently skill-less
+    # extraction (extracted_at never resets), silently breaking hard-req
+    # overlap and the matched/adjacent/missing buckets. Retryable config
+    # error, like a missing API key — match-batch re-enqueues on later
+    # cycles once the graph is built.
+    if linker is None and not _skill_graph_populated(session):
         logger.error(
-            "extract-job skills table is empty — load ESCO first "
-            "(python -m scripts.load_esco); refusing to extract job_id=%s",
+            "extract-job concept table is empty — build the skill graph first "
+            "(python -m scripts.build_skill_graph); refusing to extract job_id=%s",
             job.id,
         )
         record_pipeline_event(
@@ -95,7 +97,8 @@ def extract_job(
         )
         session.flush()
         raise RetryableLLMError(
-            "skills table is empty — load ESCO (scripts/load_esco.py) before extract-job"
+            "concept table is empty — build the skill graph "
+            "(scripts/build_skill_graph.py) before extract-job"
         )
 
     started = time.perf_counter()
@@ -276,8 +279,8 @@ def _build_embedder(settings: Settings | None) -> DocumentEmbedder:
     return build_document_embedder(settings)
 
 
-def _skills_table_populated(session: Session) -> bool:
-    return session.scalar(select(Skill.id).limit(1)) is not None
+def _skill_graph_populated(session: Session) -> bool:
+    return session.scalar(select(Concept.id).limit(1)) is not None
 
 
 def _link_span_report(linker: SkillLinker, spans: list[str]) -> SpanLinkReport:
@@ -289,7 +292,7 @@ def _link_span_report(linker: SkillLinker, spans: list[str]) -> SpanLinkReport:
 
 def _linker_from_session(
     session: Session, settings: Settings | None = None
-) -> InMemorySkillLinker:
+) -> SkillLinker:
     return linker_from_session(
         session,
         settings,
@@ -306,8 +309,7 @@ def _skill_labels(
     labels_for = getattr(linker, "labels_for", None)
     if callable(labels_for):
         return list(labels_for(skill_ids))
-    rows = session.scalars(select(Skill).where(Skill.id.in_(skill_ids))).all()
-    by_id = {row.id: row.canonical_label for row in rows}
+    by_id = concept_labels(session, skill_ids)
     return [by_id.get(skill_id, skill_id) for skill_id in skill_ids]
 
 

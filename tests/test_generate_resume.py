@@ -26,9 +26,9 @@ from app.skills.linker import InMemorySkillLinker, SkillRecord
 from tests.conftest import requires_db
 from tests.llm_fakes import FakeStructuredChat
 
-PYTHON_ID = "esco:python"
-AWS_ID = "esco:aws"
-TF_ID = "esco:terraform"
+PYTHON_ID = "seed:python"
+AWS_ID = "seed:aws"
+TF_ID = "seed:terraform"
 
 WORK_HISTORY = [
     {

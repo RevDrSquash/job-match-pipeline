@@ -34,7 +34,7 @@ def _record(
     embedding_model: str | None,
 ) -> SkillRecord:
     return SkillRecord(
-        id="esco:python",
+        id="seed:python",
         canonical_label="Python",
         embedding=embedding,
         embedding_model=embedding_model,
@@ -98,7 +98,7 @@ def test_mismatch_falls_back_to_in_memory_hashing() -> None:
     settings = Settings(embedding_provider="hashing")
     linker = linker_from_records(records, settings)
     assert isinstance(linker._index.embedder, HashingEmbedder)
-    used = linker._index.vectors["esco:python"]
+    used = linker._index.vectors["seed:python"]
     assert used != list(stored)
 
 
@@ -108,7 +108,7 @@ def test_matching_hashing_vectors_are_kept() -> None:
     settings = Settings(embedding_provider="hashing")
     linker = linker_from_records(records, settings, build_missing_embeddings=False)
     assert isinstance(linker._index.embedder, HashingEmbedder)
-    assert linker._index.vectors["esco:python"] == list(stored)
+    assert linker._index.vectors["seed:python"] == list(stored)
 
 
 def test_matching_gemini_vectors_are_kept() -> None:
@@ -122,7 +122,7 @@ def test_matching_gemini_vectors_are_kept() -> None:
     linker = linker_from_records(records, settings, build_missing_embeddings=False)
     assert isinstance(linker._index.embedder, GeminiSpanEmbedder)
     assert linker._index.embedder.model == "gemini-embedding-001"
-    assert linker._index.vectors["esco:python"] == list(stored)
+    assert linker._index.vectors["seed:python"] == list(stored)
     assert linker._index.high_confidence == GEMINI_HIGH_CONFIDENCE
     assert linker._index.threshold == GEMINI_SIMILARITY_THRESHOLD
     assert linker._index.margin == GEMINI_MARGIN
@@ -138,5 +138,5 @@ def test_gemini_provider_mismatched_hashing_rows_fall_back() -> None:
     )
     linker = linker_from_records(records, settings, build_missing_embeddings=False)
     assert isinstance(linker._index.embedder, HashingEmbedder)
-    used = linker._index.vectors["esco:python"]
+    used = linker._index.vectors["seed:python"]
     assert used != list(stored)

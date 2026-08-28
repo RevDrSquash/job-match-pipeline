@@ -13,7 +13,7 @@ def _linker() -> InMemorySkillLinker:
 
 def test_link_aliases_to_canonical_id() -> None:
     ids = _linker().link_spans(["AWS", "Amazon Web Services", "k8s", "Postgres"])
-    assert ids == ["esco:aws", "esco:kubernetes", "esco:postgresql"]
+    assert ids == ["seed:aws", "seed:kubernetes", "seed:postgresql"]
 
 
 def test_unknown_span_is_dropped() -> None:
@@ -23,9 +23,9 @@ def test_unknown_span_is_dropped() -> None:
 def test_scan_text_finds_explicit_skills() -> None:
     hits = _linker().scan_text("Worked closely across teams using Terraform and Docker.")
     ids = {hit.skill_id for hit in hits}
-    assert "esco:terraform" in ids
-    assert "esco:docker" in ids
-    assert "esco:teamwork" in ids
+    assert "seed:terraform" in ids
+    assert "seed:docker" in ids
+    assert "seed:teamwork" in ids
 
 
 def test_scan_text_skips_ambiguous_short_terms() -> None:

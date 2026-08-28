@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, Generation, Job, Match, PipelineEvent, Skill, User
+from app.db.models import Company, Generation, Job, Match, PipelineEvent, User
 from app.ingest.events import record_pipeline_event
 from app.poc.measure import collect_measurements
 from app.privacy import PrivacySafeError
@@ -19,6 +19,13 @@ from app.profile.service import bundle_to_dict, edit_profile, show_profile
 from app.queue import TaskQueue
 from app.quota import try_consume_quota
 from app.screen.labels import qualification_label_rank_expr
+from app.skills.graph import (
+    concept_detail,
+    concept_neighborhood,
+    concept_stats,
+    search_concepts,
+)
+from app.skills.repository import concept_labels
 
 UI_STAGE = "ui"
 UI_ACTIONS = frozenset(
@@ -200,6 +207,28 @@ def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]
         },
         "ui": ui_state,
     }
+
+
+def skill_stats(session: Session) -> dict[str, Any]:
+    return concept_stats(session)
+
+
+def search_skills(session: Session, q: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    return search_concepts(session, q, limit=limit)
+
+
+def get_skill(session: Session, concept_id: uuid.UUID) -> dict[str, Any]:
+    return concept_detail(session, concept_id)
+
+
+def get_skill_graph(
+    session: Session,
+    concept_id: uuid.UUID,
+    *,
+    depth: int = 1,
+    limit: int = 150,
+) -> dict[str, Any]:
+    return concept_neighborhood(session, concept_id, depth=depth, limit=limit)
 
 
 def admin_metrics(session: Session) -> dict[str, Any]:
@@ -533,10 +562,7 @@ def _match_payload(
 def _skill_labels(session: Session, skill_ids: set[str]) -> dict[str, str]:
     if not skill_ids:
         return {}
-    rows = session.execute(
-        select(Skill.id, Skill.canonical_label).where(Skill.id.in_(skill_ids))
-    ).all()
-    return {row.id: row.canonical_label for row in rows}
+    return concept_labels(session, skill_ids)
 
 
 def _skill_refs(

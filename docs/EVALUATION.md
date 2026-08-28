@@ -102,7 +102,7 @@ on every suite (token counts and estimated USD when an LLM actually ran).
 | Suite | What runs offline | Live path |
 | --- | --- | --- |
 | Extraction | Heuristic section/header parser (baseline) | `JobLLM` when `LLM_API_KEY` is set |
-| Skill linking | Shared `SkillLinker` over the seed taxonomy / `skills` table | same |
+| Skill linking | Shared `SkillLinker` over the seed taxonomy (`seed:<slug>` ids) / canonical graph | same |
 | Retrieval | In-set corpus + metadata predicate + embed + rerank | `EMBEDDING_PROVIDER=gemini` required for a quality number |
 | Fabrication | Grounded copy-only generator + `run_deterministic_checks` | `GenerateLLM` when a key is set |
 

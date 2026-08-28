@@ -27,7 +27,7 @@ Current milestone: local proof of concept only. No GCP resources, no Terraform �
 * **Idempotency everywhere:** at-least-once delivery makes duplicates certain. Dedup on `url_hash` for jobs, `extracted_at IS NULL` guards for extraction, no-op on redelivery for screening/generation.
 * **Embeddings are 768-dim** (`vector(768)`); use the same embedding model for job and profile documents. Record the model choice in `docs/OPEN_ISSUES.md` §6.
 * **Log token counts and cost for every LLM call.** Real token counts are the cost model's biggest open question and resolve a known ~10× discrepancy (`docs/OPEN_ISSUES.md` §1).
-* **Skill canonicalization** goes through the shared linking module (ESCO taxonomy). Don't do string matching on skill names outside it.
+* **Skill canonicalization** goes through the shared linking module over the canonical ESCO + O*NET graph (`docs/SKILL_GRAPH.md`). Don't do string matching on skill names outside it.
 
 ## Workflow
 

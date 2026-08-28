@@ -67,7 +67,7 @@ Set `max-concurrent-dispatches` in line with the Cloud SQL connection budget, no
 **Scales with:** users early, plateaus at O(jobs) as coverage saturates
 
 1. **LLM structured extraction** → seniority, hard requirements, nice-to-haves, comp range, work arrangement, raw skill spans
-2. **Link skill spans to canonical taxonomy** (ESCO/O*NET) → `skill_id[]`
+2. **Link skill spans to canonical concepts** (ESCO + O*NET graph) → `skill_id[]`
 3. Build synthesized compact document
 4. Embed the synthesized document
 5. Write back to the job row; **cached permanently**
@@ -76,7 +76,7 @@ Set `max-concurrent-dispatches` in line with the Cloud SQL connection budget, no
 
 * Extraction model: `gemini-3.5-flash-lite` (current GA budget tier; postings are not personal information — no residency/ZDR constraint). Prompt calls out hard vs nice-to-have explicitly — that split drives the deterministic gate (Evaluation eval 1). `skill_spans` items must each be a single skill (prompt change 2026-08-18; eval suite not yet in place — re-run when `docs/EVALUATION.md` Operational discipline applies).
 * Skill spans go through `app.skills.SkillLinker` only (no string matching at the handler). Compound spans (commas, slashes, semicolons, "and" / "or") are split in the shared linker before exact/alias/similarity linking so a packed list still yields one id per fragment.
-* **A loaded skills taxonomy is a hard prerequisite.** If the `skills` table is empty, extract-job refuses with a retryable config error (503, `skills_taxonomy_missing` event) — checked *before* the LLM call, so nothing is spent. Extraction against an empty table would cache a permanently skill-less record (`extracted_at` never resets), silently breaking hard-requirement overlap and the matched/adjacent/missing buckets. Run `python -m scripts.load_esco` first; `match-batch` re-enqueues the job on a later cycle once the load is done.
+* **A built skill graph is a hard prerequisite.** If the `concept` table is empty, extract-job refuses with a retryable config error (503, `skills_taxonomy_missing` event) — checked *before* the LLM call, so nothing is spent. Extraction against an empty graph would cache a permanently skill-less record (`extracted_at` never resets), silently breaking hard-requirement overlap and the matched/adjacent/missing buckets. Run `python -m scripts.build_skill_graph` first; `match-batch` re-enqueues the job on a later cycle once the graph is built. See [`SKILL_GRAPH.md`](SKILL_GRAPH.md).
 * Synthesized doc is title + seniority + canonical skill labels + hard requirements + comp, clipped to one ~500-token rerank chunk (`ARCHITECTURE.md` §3).
 * Document embedding is 768-d. Default `EMBEDDING_PROVIDER=hashing` (offline); `gemini` uses `gemini-embedding-001` truncated to 768 and is the setting for retrieval-quality evals. Job and profile docs must share one provider — see `OPEN_ISSUES.md` §6.
 * Every call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (Cost Model measurement caution; needed for `OPEN_ISSUES.md` §1). JD text is never logged. Successful `extracted` events also store `skill_spans`, `linked_skill_ids`, and `unlinked_spans` in `pipeline_events.details` (job postings are not personal information) so a thin skill set is diagnosable without a live DB dump.
@@ -145,7 +145,7 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 * Same SQL for both modes (`app/match/sql.py`): ATS metadata join on location (substring), work arrangement, comp floor, title-family token, and seniority band, plus pgvector cosine in the same statement. Seniority only applies once `jobs.seniority` is set (extracted jobs); a NULL job-side seniority still passes. Incremental adds `ingested_at > last_cycle OR extracted_at > last_cycle` so a job extracted after cycle N is recalled in cycle N+1. Dirty drops the date bound. Incremental mode's "all active users" means users with a `user_filters` row (profile ingest always writes one).
 * Last-cycle watermark is `max(pipeline_events.ts)` for `stage=match-batch` / `action=completed`. Override with `since` in the payload.
 * Unextracted prefilter survivors enqueue `extract-job` once per distinct `job_id` in the handler (TaskQueue has no named-task dedup) and are not matched this cycle.
-* Skill overlap is a Jaccard feature blended into the local rerank score (0.7 cosine + 0.3 Jaccard). Matched / adjacent / missing buckets are written onto `matches` (adjacency is a small label-sibling table — including SQL ↔ PostgreSQL/MySQL/SQLite — until ESCO hierarchy is loaded).
+* Skill overlap is a Jaccard feature blended into the local rerank score (0.7 cosine + 0.3 Jaccard). Matched / adjacent / missing buckets are written onto `matches` (adjacency is a small label-sibling table — including SQL ↔ PostgreSQL/MySQL/SQLite — until a subsumption policy over `concept_edge` lands; see `OPEN_ISSUES.md` §9).
 * Reranker is behind `app.match.Reranker`: `RERANK_PROVIDER=local` (default, embedding cosine) or `hosted` (Cohere-compatible HTTP API, cosine fallback on failure).
 * Top-N per user (`MATCH_TOP_N`, default 100) is also clipped by the remaining daily candidate cap (`DAILY_CANDIDATE_CAP`, default 500).
 * Dirty mode selects `user_profiles.rematch_needed` up to `DIRTY_PROFILE_CAP` (default 25), processes the full corpus for those users, then clears the flag.
@@ -269,17 +269,20 @@ jobs
   -- from extract-job, NULL until first prefilter hit:
   extracted_at
   seniority, hard_requirements[], nice_to_haves[]
-  skill_ids[]              -- canonical
+  skill_ids[]              -- canonical concept UUID strings
   synthesized_doc, embedding vector(768)
 
 companies
   id, name, ats_provider, board_token, country, discovered_via
 
-skills
-  id                       -- opaque taxonomy id (ESCO concept URI in the PoC)
-  canonical_label, alt_labels[], description
-  embedding vector(768)    -- span-similarity fallback for the linker
-  embedding_model          -- which model produced embedding (nullable)
+concept                    -- canonical skill-graph node (see SKILL_GRAPH.md)
+  id                       -- deterministic UUIDv5; never a raw source id
+  canonical_name, normalized_name, concept_type, description, status
+  embedding vector(768), embedding_model
+concept_alias              -- preferred / alt / curated / derived surface forms
+concept_edge               -- application-owned IS_A (and later) relationships
+source_concept / source_edge / source_mapping
+                           -- versioned ESCO + O*NET provenance
 
 users
   id, tier, quota_remaining, quota_reset_at
