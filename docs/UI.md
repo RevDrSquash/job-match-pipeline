@@ -256,6 +256,10 @@ Read endpoints (thin queries over existing models):
 | `GET /api/jobs/{id}` | local job detail used by job pages and the match-feed viewer: same metadata plus `url`, `raw_jd`, sanitized `raw_jd_html` (nullable; display-only), and extracted fields (`seniority`, `hard_requirements`, `nice_to_haves`) when present |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
 | `GET /api/admin/metrics` | funnel counts, extraction coverage %, label distribution, LLM spend |
+| `GET /api/skills/stats` | taxonomy health: concept counts by `concept_type`, alias counts by `alias_type`, `source_concept` counts by source/version, edge counts per layer (`canonical` vs `source`). Canonical edges are 0 until the graph is rebuilt with ESCO `broaderRelationsSkillPillar_en.csv` |
+| `GET /api/skills/search?q=` | typeahead over `concept_alias`: exact `normalized_alias` match first, then pg_trgm similarity, deterministic (`similarity DESC, concept_id`). `{results: [{id, label, concept_type, matched_alias}]}` |
+| `GET /api/skills/{id}` | concept detail: canonical fields, aliases grouped by `alias_type`, source mappings joined to `source_concept` (ESCO URI / O*NET id, mapping method, confidence) |
+| `GET /api/skills/{id}/graph` | neighborhood `{nodes, edges, truncated}` at `depth` (1 or 2, default 1), capped at `limit` (default 150). Canonical `concept_edge` plus projected source-layer relationships. O*NET categories have no canonical concept, so they appear as synthetic nodes (`id: "source:onet:<external_id>"`, `layer: "source"`) with sibling members capped (25, alphabetical) and `member_count` for "+N more" |
 
 Write endpoints:
 
@@ -276,7 +280,9 @@ Authenticated public search is still future work (see "Free tier: public search"
 
 This is a debugging and corpus-inspection tool for the PoC, not the conversion funnel. It **does** show JD text and the outbound URL because there is no unauthenticated public traffic. The future public search remains metadata-only, with no JD body and no outbound link, until signup.
 
-**Surfaces in this cut:** match feed, job search + detail, profile editor, generation handoff, `/admin`.
+**Surfaces in this cut:** match feed, job search + detail, skill graph explorer (`/skills`), profile editor, generation handoff, `/admin`.
+
+The skill explorer is search-first: type a skill, inspect its neighborhood (react-force-graph-2d), and read aliases plus ESCO/O*NET provenance in a side panel. It does **not** render the whole graph (~23k concepts). The canvas shows both layers — canonical `concept_edge` when present, and projected `source_edge` relationships so O*NET technologies still cluster under their categories while canonical `IS_A` is empty. Match-feed skill chips deep-link to `/skills?concept=<uuid>`.
 
 Skill buckets in match and generation payloads, and the profile `skills` field, are objects `{id, label}` where `id` is the canonical concept UUID (or PoC `seed:<slug>` / leftover `esco:<slug>` awaiting backfill) and `label` is resolved from `concept.canonical_name`. Unknown ids echo the id as the label.
 

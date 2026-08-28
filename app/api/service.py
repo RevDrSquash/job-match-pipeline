@@ -19,6 +19,12 @@ from app.profile.service import bundle_to_dict, edit_profile, show_profile
 from app.queue import TaskQueue
 from app.quota import try_consume_quota
 from app.screen.labels import qualification_label_rank_expr
+from app.skills.graph import (
+    concept_detail,
+    concept_neighborhood,
+    concept_stats,
+    search_concepts,
+)
 from app.skills.repository import concept_labels
 
 UI_STAGE = "ui"
@@ -201,6 +207,28 @@ def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]
         },
         "ui": ui_state,
     }
+
+
+def skill_stats(session: Session) -> dict[str, Any]:
+    return concept_stats(session)
+
+
+def search_skills(session: Session, q: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    return search_concepts(session, q, limit=limit)
+
+
+def get_skill(session: Session, concept_id: uuid.UUID) -> dict[str, Any]:
+    return concept_detail(session, concept_id)
+
+
+def get_skill_graph(
+    session: Session,
+    concept_id: uuid.UUID,
+    *,
+    depth: int = 1,
+    limit: int = 150,
+) -> dict[str, Any]:
+    return concept_neighborhood(session, concept_id, depth=depth, limit=limit)
 
 
 def admin_metrics(session: Session) -> dict[str, Any]:

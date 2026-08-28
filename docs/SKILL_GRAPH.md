@@ -57,6 +57,13 @@ README):
 See [`data/esco/README.md`](../data/esco/README.md). Attribution: ESCO ©
 European Union, CC BY 4.0.
 
+**Live graph (local PoC):** the current import was built without
+`broaderRelationsSkillPillar_en.csv`, so `concept_edge` is empty. Visible
+structure in the `/skills` explorer comes from the source layer (`source_edge`
+O*NET technology → category, plus `source_mapping`). Rebuilding with that CSV
+present populates canonical `IS_A`; the explorer already renders both layers
+and needs no change when those edges appear.
+
 **O*NET 31.0 Software Skills.** One-time low-volume fetch of the full
 ~31.8k-row file (not Hot Technologies only), cached at
 `data/onet/software_skills_31_0.json`:

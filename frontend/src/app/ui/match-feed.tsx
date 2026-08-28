@@ -12,7 +12,7 @@ import {
   requestGeneration,
 } from "@/lib/api";
 import type { JobDetail, Match, SkillRef, User } from "@/lib/types";
-import { skillDisplayLabel } from "@/lib/skills";
+import { isCanonicalConceptId, skillDisplayLabel } from "@/lib/skills";
 import styles from "@/app/dashboard.module.css";
 import JobDescriptionViewer from "@/app/ui/job-description-viewer";
 
@@ -76,11 +76,27 @@ function SkillChips({
   return (
     <div className={styles.chips}>
       {skills.length ? (
-        skills.map((skill) => (
-          <span className={`${styles.chip} ${toneClass}`} key={skill.id}>
-            {skillDisplayLabel(skill)}
-          </span>
-        ))
+        skills.map((skill) => {
+          const className = `${styles.chip} ${toneClass}`;
+          const label = skillDisplayLabel(skill);
+          if (!isCanonicalConceptId(skill.id)) {
+            return (
+              <span className={className} key={skill.id}>
+                {label}
+              </span>
+            );
+          }
+          return (
+            <Link
+              className={className}
+              href={`/skills?concept=${skill.id}`}
+              key={skill.id}
+              title={`Explore ${label} in the skill graph`}
+            >
+              {label}
+            </Link>
+          );
+        })
       ) : (
         <span className={`${styles.chip} ${styles.emptyChip}`}>None listed</span>
       )}

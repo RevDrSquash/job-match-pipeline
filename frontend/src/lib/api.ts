@@ -4,6 +4,10 @@ import type {
   JobSummary,
   Match,
   Profile,
+  SkillDetail,
+  SkillGraphPayload,
+  SkillSearchHit,
+  SkillStats,
   User,
 } from "@/lib/types";
 
@@ -89,4 +93,30 @@ export async function searchJobs(query = ""): Promise<JobSummary[]> {
 
 export function fetchJob(jobId: string): Promise<JobDetail> {
   return request<JobDetail>(`/api/jobs/${jobId}`);
+}
+
+export function fetchSkillStats(): Promise<SkillStats> {
+  return request<SkillStats>("/api/skills/stats");
+}
+
+export async function searchSkills(query: string, limit = 20): Promise<SkillSearchHit[]> {
+  const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
+  const result = await request<{ results: SkillSearchHit[] }>(`/api/skills/search?${params}`);
+  return result.results;
+}
+
+export function fetchSkill(conceptId: string): Promise<SkillDetail> {
+  return request<SkillDetail>(`/api/skills/${conceptId}`);
+}
+
+export function fetchSkillGraph(
+  conceptId: string,
+  depth = 1,
+  limit = 150,
+): Promise<SkillGraphPayload> {
+  const params = new URLSearchParams({
+    depth: String(depth),
+    limit: String(limit),
+  });
+  return request<SkillGraphPayload>(`/api/skills/${conceptId}/graph?${params}`);
 }

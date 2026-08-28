@@ -154,6 +154,14 @@ generic, job specific) is adjacent at best. Until then, generic-vs-specific
 pairs land in the **missing** bucket — conservative and fabrication-safe, but
 it understates matches.
 
+The live local graph was imported without ESCO's
+`broaderRelationsSkillPillar_en.csv`, so `concept_edge` is currently empty and
+that subsumption layer has no edges to walk. Drop the CSV into `data/esco/`
+and rebuild (`python -m scripts.build_skill_graph`); canonical `IS_A` fills
+in. The `/skills` explorer already projects source-layer O*NET categories and
+will show canonical edges automatically — no page change required. See
+[`SKILL_GRAPH.md`](SKILL_GRAPH.md).
+
 Two invariants make the future layer possible; keep them:
 
 * The linker must canonicalize generic spans to **generic concepts, never to a

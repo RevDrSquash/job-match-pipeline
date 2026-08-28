@@ -14,11 +14,15 @@ from app.api.service import (
     get_generation,
     get_job,
     get_profile,
+    get_skill,
+    get_skill_graph,
     list_matches,
     list_users,
     patch_profile,
     record_match_event,
     search_jobs,
+    search_skills,
+    skill_stats,
     trigger_generate,
 )
 from app.db.session import db_session
@@ -125,6 +129,39 @@ def create_api_router() -> APIRouter:
     def api_admin_metrics() -> dict[str, Any]:
         with db_session() as session:
             return admin_metrics(session)
+
+    @router.get("/skills/stats")
+    def api_skill_stats() -> dict[str, Any]:
+        with db_session() as session:
+            return skill_stats(session)
+
+    @router.get("/skills/search")
+    def api_search_skills(
+        q: Annotated[str, Query()] = "",
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    ) -> dict[str, list[dict[str, Any]]]:
+        with db_session() as session:
+            return {"results": search_skills(session, q, limit=limit)}
+
+    @router.get("/skills/{concept_id}")
+    def api_get_skill(concept_id: uuid.UUID) -> dict[str, Any]:
+        try:
+            with db_session() as session:
+                return get_skill(session, concept_id)
+        except PrivacySafeError as exc:
+            raise _client_error(exc) from None
+
+    @router.get("/skills/{concept_id}/graph")
+    def api_get_skill_graph(
+        concept_id: uuid.UUID,
+        depth: Annotated[int, Query(ge=1, le=2)] = 1,
+        limit: Annotated[int, Query(ge=1, le=500)] = 150,
+    ) -> dict[str, Any]:
+        try:
+            with db_session() as session:
+                return get_skill_graph(session, concept_id, depth=depth, limit=limit)
+        except PrivacySafeError as exc:
+            raise _client_error(exc) from None
 
     @router.post("/matches/{match_id}/events")
     def api_match_event(match_id: uuid.UUID, body: MatchEventBody) -> dict[str, Any]:
