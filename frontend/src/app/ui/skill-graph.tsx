@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "@/app/skills.module.css";
 import { fetchSkill, fetchSkillGraph, searchSkills } from "@/lib/api";
@@ -60,10 +60,12 @@ export default function SkillGraphExplorer({
     conceptParam(searchParams.get("concept")) ||
     conceptParam(initialConceptId ?? null);
 
+  const searchRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SkillSearchHit[]>([]);
   const [resultQuery, setResultQuery] = useState("");
   const [searchError, setSearchError] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [graph, setGraph] = useState<SkillGraphPayload | null>(null);
   const [loadedKey, setLoadedKey] = useState("");
@@ -81,6 +83,7 @@ export default function SkillGraphExplorer({
   const shownDetail =
     loadedKey === selectionKey && detail?.id === selectedId ? detail : null;
   const shownGraph = loadedKey === selectionKey ? graph : null;
+  const showDropdown = searchOpen && Boolean(term);
 
   useEffect(() => {
     if (!term) return;
@@ -134,8 +137,29 @@ export default function SkillGraphExplorer({
     };
   }, [depth, selectedId]);
 
+  useEffect(() => {
+    if (!showDropdown) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!searchRef.current?.contains(event.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showDropdown]);
+
   const selectConcept = (conceptId: string) => {
-    if (!isCanonicalConceptId(conceptId) || conceptId === selectedId) return;
+    if (!isCanonicalConceptId(conceptId)) return;
+    setQuery("");
+    setSearchOpen(false);
+    if (conceptId === selectedId) return;
     router.replace(`/skills?concept=${conceptId}`, { scroll: false });
   };
 
@@ -201,48 +225,72 @@ export default function SkillGraphExplorer({
         )}
       </div>
 
-      <div className={styles.workspace}>
-        <section className={styles.panel} aria-label="Skill search">
-          <div className={styles.panelHeader}>
-            <h2>Search</h2>
-            <span>Exact aliases first, then similar names.</span>
-            <input
-              aria-label="Search skills"
-              className={styles.searchBox}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Docker, Python, AWS…"
-              value={query}
-            />
-          </div>
-          <div className={styles.results}>
-            {shownSearchError ? (
-              <p className={styles.hint}>{shownSearchError}</p>
-            ) : searching ? (
-              <p className={styles.hint}>Searching…</p>
-            ) : term && shownResults.length === 0 ? (
-              <p className={styles.hint}>No matching concepts.</p>
-            ) : (
-              shownResults.map((hit) => (
-                <button
-                  className={`${styles.result} ${hit.id === selectedId ? styles.resultActive : ""}`}
-                  key={hit.id}
-                  onClick={() => selectConcept(hit.id)}
-                  type="button"
-                >
-                  <strong>{hit.label}</strong>
-                  <span className={styles.resultMeta}>
-                    {hit.concept_type.replaceAll("_", " ")}
-                    {hit.matched_alias !== hit.label
-                      ? ` · matched “${hit.matched_alias}”`
-                      : ""}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
+      <div className={styles.searchBar} ref={searchRef}>
+        <label className={styles.searchLabel} htmlFor="skill-search">
+          Search skills
+        </label>
+        <div className={styles.searchField}>
+          <input
+            aria-autocomplete="list"
+            aria-controls="skill-search-results"
+            aria-expanded={showDropdown}
+            aria-label="Search skills"
+            className={styles.searchBox}
+            id="skill-search"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            placeholder="Docker, Python, AWS…"
+            role="combobox"
+            value={query}
+          />
+          {showDropdown && (
+            <div
+              className={styles.dropdown}
+              id="skill-search-results"
+              role="listbox"
+            >
+              {shownSearchError ? (
+                <p className={styles.dropdownHint}>{shownSearchError}</p>
+              ) : searching ? (
+                <p className={styles.dropdownHint}>Searching…</p>
+              ) : shownResults.length === 0 ? (
+                <p className={styles.dropdownHint}>No matching concepts.</p>
+              ) : (
+                shownResults.map((hit) => (
+                  <button
+                    aria-selected={hit.id === selectedId}
+                    className={`${styles.result} ${hit.id === selectedId ? styles.resultActive : ""}`}
+                    key={hit.id}
+                    onClick={() => selectConcept(hit.id)}
+                    role="option"
+                    type="button"
+                  >
+                    <strong>{hit.label}</strong>
+                    <span className={styles.resultMeta}>
+                      {hit.concept_type.replaceAll("_", " ")}
+                      {hit.matched_alias !== hit.label
+                        ? ` · matched “${hit.matched_alias}”`
+                        : ""}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        <span className={styles.searchHint}>
+          Exact aliases first, then similar names.
+        </span>
+      </div>
 
-        <section className={`${styles.panel} ${styles.canvasPanel}`} aria-label="Neighborhood graph">
+      <div className={styles.workspace}>
+        <section
+          className={`${styles.panel} ${styles.canvasPanel}`}
+          aria-label="Neighborhood graph"
+        >
           {shownError ? (
             <div className={styles.canvasEmpty}>
               <h2>Neighborhood unavailable</h2>
@@ -339,8 +387,12 @@ export default function SkillGraphExplorer({
             <div className={styles.detail}>
               <h3>{shownDetail.canonical_name}</h3>
               <div className={styles.typeRow}>
-                <span className={styles.badge}>{shownDetail.concept_type.replaceAll("_", " ")}</span>
-                <span className={`${styles.badge} ${styles.badgeMuted}`}>{shownDetail.status}</span>
+                <span className={styles.badge}>
+                  {shownDetail.concept_type.replaceAll("_", " ")}
+                </span>
+                <span className={`${styles.badge} ${styles.badgeMuted}`}>
+                  {shownDetail.status}
+                </span>
               </div>
               {shownDetail.description ? (
                 <p className={styles.description}>{shownDetail.description}</p>

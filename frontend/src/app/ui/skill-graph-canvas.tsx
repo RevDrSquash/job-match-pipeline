@@ -17,6 +17,11 @@ const TYPE_COLORS: Record<string, string> = {
   occupation: "--red",
 };
 
+/** Below this zoom (k), canvas labels are hidden; hover tooltips remain. */
+const LABEL_MIN_SCALE = 0.75;
+const CHARGE_STRENGTH = -560;
+const LINK_DISTANCE = 150;
+
 function readColor(variable: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
   const value = getComputedStyle(document.documentElement)
@@ -28,6 +33,11 @@ function readColor(variable: string, fallback: string) {
 function nodeColor(node: SkillGraphNode) {
   const variable = TYPE_COLORS[node.concept_type] ?? "--ink";
   return readColor(variable, "#17231e");
+}
+
+function truncateLabel(label: string, max = 34) {
+  if (label.length <= max) return label;
+  return `${label.slice(0, max - 1)}…`;
 }
 
 export default function SkillGraphCanvas({
@@ -67,6 +77,29 @@ export default function SkillGraphCanvas({
     fitted.current = false;
   }, [nodes, edges]);
 
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+
+    const charge = graph.d3Force("charge");
+    if (charge && typeof charge.strength === "function") {
+      charge.strength(CHARGE_STRENGTH);
+    }
+    if (charge && typeof charge.distanceMax === "function") {
+      charge.distanceMax(900);
+    }
+
+    const link = graph.d3Force("link");
+    if (link && typeof link.distance === "function") {
+      link.distance(LINK_DISTANCE);
+    }
+    if (link && typeof link.strength === "function") {
+      link.strength(0.35);
+    }
+
+    graph.d3ReheatSimulation();
+  }, [edges, nodes, size.height, size.width]);
+
   return (
     <div ref={wrapRef} style={{ width: "100%", height: "100%" }}>
       <ForceGraph2D<GraphNode, GraphLink>
@@ -79,6 +112,8 @@ export default function SkillGraphCanvas({
         linkSource="source"
         linkTarget="target"
         nodeRelSize={6}
+        warmupTicks={40}
+        cooldownTicks={140}
         nodeLabel={(node) =>
           `${node.label} · ${node.concept_type.replaceAll("_", " ")}`
         }
@@ -101,12 +136,13 @@ export default function SkillGraphCanvas({
         onEngineStop={() => {
           if (fitted.current || nodes.length === 0) return;
           fitted.current = true;
-          graphRef.current?.zoomToFit(300, 48);
+          graphRef.current?.zoomToFit(400, 72);
         }}
         nodeCanvasObject={(node, ctx, globalScale) => {
           const x = node.x ?? 0;
           const y = node.y ?? 0;
-          const radius = node.id === selectedId ? 8 : node.layer === "source" ? 6 : 5.5;
+          const radius =
+            node.id === selectedId ? 8 : node.layer === "source" ? 6 : 5.5;
           ctx.beginPath();
           ctx.arc(x, y, radius, 0, Math.PI * 2);
           ctx.fillStyle = nodeColor(node);
@@ -118,22 +154,29 @@ export default function SkillGraphCanvas({
             ctx.strokeStyle = readColor("--green-dark", "#0c4b35");
             ctx.stroke();
           }
+
+          const showLabel =
+            globalScale >= LABEL_MIN_SCALE || node.id === selectedId;
+          if (!showLabel) return;
+
           const extra =
             typeof node.member_count === "number" && node.member_count > 0
               ? ` (${node.member_count})`
               : "";
-          const label = `${node.label}${extra}`;
-          const fontSize = Math.max(10, 12 / globalScale);
+          const label = truncateLabel(`${node.label}${extra}`);
+          const fontSize = 11 / globalScale;
           ctx.font = `600 ${fontSize}px ${readColor("--font-geist-sans", "sans-serif")}, sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "top";
           ctx.fillStyle = readColor("--ink", "#17231e");
-          ctx.fillText(label, x, y + radius + 3);
+          ctx.globalAlpha = node.id === selectedId ? 1 : 0.92;
+          ctx.fillText(label, x, y + radius + 4 / globalScale);
+          ctx.globalAlpha = 1;
         }}
         nodePointerAreaPaint={(node, color, ctx) => {
           ctx.fillStyle = color;
           ctx.beginPath();
-          ctx.arc(node.x ?? 0, node.y ?? 0, 14, 0, Math.PI * 2);
+          ctx.arc(node.x ?? 0, node.y ?? 0, 16, 0, Math.PI * 2);
           ctx.fill();
         }}
       />
