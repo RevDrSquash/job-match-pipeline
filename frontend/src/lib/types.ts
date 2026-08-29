@@ -257,3 +257,28 @@ export type AdminMetrics = {
     }
   >;
 };
+
+export type AdminJobId =
+  | "fetch-link-list"
+  | "match-incremental"
+  | "match-dirty"
+  | "analyze-batch";
+
+export type AdminJobStatus = {
+  id: AdminJobId;
+  running: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+  last_result: Record<string, unknown> | string | null;
+};
+
+export type AdminCompany = {
+  id: string;
+  name: string;
+  ats_provider: string | null;
+  board_token: string | null;
+};
+
+export type AdminJobRunResult =
+  | { status: "started" }
+  | { status: "already_running"; detail: string };

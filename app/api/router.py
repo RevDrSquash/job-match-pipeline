@@ -9,6 +9,13 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
+from app.api.admin_jobs import (
+    JobAlreadyRunningError,
+    UnknownAdminJobError,
+    list_companies,
+    list_job_statuses,
+    start_job,
+)
 from app.api.service import (
     admin_metrics,
     get_generation,
@@ -55,6 +62,12 @@ class MatchEventBody(BaseModel):
     reason_text: str | None = None
     applied_at: datetime | None = None
     outcome: Literal["interview", "rejected"] | None = None
+
+
+class AdminJobRunBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company_id: uuid.UUID | None = None
 
 
 def create_api_router() -> APIRouter:
@@ -138,6 +151,39 @@ def create_api_router() -> APIRouter:
     def api_admin_metrics() -> dict[str, Any]:
         with db_session() as session:
             return admin_metrics(session)
+
+    @router.get("/admin/jobs")
+    def api_admin_jobs() -> dict[str, list[dict[str, Any]]]:
+        return {"jobs": list_job_statuses()}
+
+    @router.post("/admin/jobs/{job_id}/run")
+    def api_run_admin_job(
+        job_id: str,
+        request: Request,
+        body: AdminJobRunBody | None = None,
+    ) -> dict[str, str]:
+        payload = body or AdminJobRunBody()
+        if payload.company_id is not None and job_id != "fetch-link-list":
+            raise HTTPException(
+                status_code=400,
+                detail="company_id is only valid for fetch-link-list",
+            )
+        try:
+            start_job(
+                job_id,
+                request.app.state.settings,
+                company_id=payload.company_id,
+            )
+        except UnknownAdminJobError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except JobAlreadyRunningError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        return {"status": "started"}
+
+    @router.get("/admin/companies")
+    def api_admin_companies() -> dict[str, list[dict[str, Any]]]:
+        with db_session() as session:
+            return {"companies": list_companies(session)}
 
     @router.get("/skills/stats")
     def api_skill_stats() -> dict[str, Any]:

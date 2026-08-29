@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import styles from "@/app/dashboard.module.css";
+import AdminJobControls from "@/app/ui/admin-job-controls";
 import type { AdminMetrics } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -53,6 +54,17 @@ export default async function AdminPage() {
   if (!metrics) {
     return (
       <main className={styles.shell}>
+        <div className={styles.pageHeader}>
+          <div>
+            <p className={styles.eyebrow}>Pipeline health</p>
+            <h1>See where candidates move—and where they stop.</h1>
+            <p>
+              Trigger ingest and matching jobs here. Metrics will appear once the
+              API is reachable.
+            </p>
+          </div>
+        </div>
+        <AdminJobControls />
         <div className={styles.errorState}>
           <div>
             <span className={styles.emptyIcon}>!</span>
@@ -90,6 +102,8 @@ export default async function AdminPage() {
           Collected {new Date(metrics.collected_at).toLocaleString("en-US")}
         </span>
       </div>
+
+      <AdminJobControls />
 
       <section className={styles.metricsHero} aria-label="Key metrics">
         <article className={styles.metricCard}>

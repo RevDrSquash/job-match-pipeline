@@ -1,4 +1,8 @@
 import type {
+  AdminCompany,
+  AdminJobId,
+  AdminJobRunResult,
+  AdminJobStatus,
   Generation,
   JobDetail,
   JobSummary,
@@ -140,4 +144,48 @@ export function fetchSkillGraph(
     limit: String(limit),
   });
   return request<SkillGraphPayload>(`/api/skills/${conceptId}/graph?${params}`);
+}
+
+export async function getAdminJobs(): Promise<AdminJobStatus[]> {
+  const result = await request<{ jobs: AdminJobStatus[] }>("/api/admin/jobs");
+  return result.jobs;
+}
+
+export async function getAdminCompanies(): Promise<AdminCompany[]> {
+  const result = await request<{ companies: AdminCompany[] }>(
+    "/api/admin/companies",
+  );
+  return result.companies;
+}
+
+export async function runAdminJob(
+  jobId: AdminJobId,
+  body?: { company_id?: string },
+): Promise<AdminJobRunResult> {
+  const response = await fetch(`/api/admin/jobs/${jobId}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (response.status === 409) {
+    let detail = "already running";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) detail = payload.detail;
+    } catch {
+      // Keep the generic note when the body is not JSON.
+    }
+    return { status: "already_running", detail };
+  }
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) message = payload.detail;
+    } catch {
+      // Keep the status-based message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as { status: "started" };
 }
