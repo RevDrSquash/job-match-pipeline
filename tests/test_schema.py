@@ -15,6 +15,8 @@ from app.db.models import (
     Concept,
     ConceptAlias,
     Job,
+    Match,
+    MatchAnalysis,
     PipelineEvent,
     User,
     UserFilter,
@@ -221,6 +223,119 @@ def test_pipeline_events_details_round_trip(db_session: Session) -> None:
     assert loaded is not None
     assert loaded.details["prompt_tokens"] == 12
     assert loaded.details["cost_usd"] == 0.001
+
+
+def _seed_match(db_session: Session, *, url_hash: str) -> tuple[User, Job, Match]:
+    user = User(tier="free")
+    job = Job(url_hash=url_hash, title="Role")
+    db_session.add_all([user, job])
+    db_session.flush()
+    match = Match(
+        user_id=user.id,
+        job_id=job.id,
+        cycle_at=datetime.now(tz=UTC),
+        qualification_label="clearly_qualified",
+    )
+    db_session.add(match)
+    db_session.flush()
+    return user, job, match
+
+
+@requires_db
+def test_match_analysis_round_trip(db_session: Session) -> None:
+    user, job, match = _seed_match(db_session, url_hash="analysis-round-trip")
+    report = MatchAnalysis(
+        user_id=user.id,
+        job_id=job.id,
+        match_id=match.id,
+        analysis={"verdict": "Strong fit on the required stack."},
+        model="gemini-3.5-flash",
+    )
+    db_session.add(report)
+    db_session.flush()
+
+    loaded = db_session.get(MatchAnalysis, report.id)
+    assert loaded is not None
+    assert loaded.analysis["verdict"] == "Strong fit on the required stack."
+    assert loaded.model == "gemini-3.5-flash"
+    assert loaded.created_at is not None
+    assert match.analysis is loaded
+
+
+@requires_db
+def test_match_analysis_one_per_match(db_session: Session) -> None:
+    user, job, match = _seed_match(db_session, url_hash="analysis-unique")
+    db_session.add(
+        MatchAnalysis(
+            user_id=user.id,
+            job_id=job.id,
+            match_id=match.id,
+            analysis={"verdict": "first"},
+            model="gemini-3.5-flash",
+        )
+    )
+    db_session.flush()
+    db_session.add(
+        MatchAnalysis(
+            user_id=user.id,
+            job_id=job.id,
+            match_id=match.id,
+            analysis={"verdict": "second"},
+            model="gemini-3.5-flash",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+@requires_db
+def test_match_analysis_survives_match_delete(db_session: Session) -> None:
+    """Paid reports must outlive superseded match rows (OPEN_ISSUES §14)."""
+    user, job, match = _seed_match(db_session, url_hash="analysis-set-null")
+    report = MatchAnalysis(
+        user_id=user.id,
+        job_id=job.id,
+        match_id=match.id,
+        analysis={"verdict": "keep me"},
+        model="gemini-3.5-flash",
+    )
+    db_session.add(report)
+    db_session.flush()
+
+    db_session.execute(text("DELETE FROM matches WHERE id = :id"), {"id": match.id})
+    db_session.flush()
+    db_session.expire(report)
+
+    loaded = db_session.get(MatchAnalysis, report.id)
+    assert loaded is not None
+    assert loaded.match_id is None
+    assert loaded.user_id == user.id
+    assert loaded.job_id == job.id
+    assert loaded.analysis["verdict"] == "keep me"
+
+
+@requires_db
+def test_match_analysis_cascades_with_user_delete(db_session: Session) -> None:
+    user, job, match = _seed_match(db_session, url_hash="analysis-user-cascade")
+    report = MatchAnalysis(
+        user_id=user.id,
+        job_id=job.id,
+        match_id=match.id,
+        analysis={"verdict": "personal information"},
+        model="gemini-3.5-flash",
+    )
+    db_session.add(report)
+    db_session.flush()
+    analysis_id = report.id
+
+    db_session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user.id})
+    db_session.flush()
+
+    remaining = db_session.execute(
+        text("SELECT id FROM match_analyses WHERE id = :id"),
+        {"id": analysis_id},
+    ).first()
+    assert remaining is None
 
 
 def test_database_url_normalizes_psycopg_driver() -> None:

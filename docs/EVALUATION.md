@@ -79,7 +79,7 @@ Inject known fabrications into otherwise-clean generated resumes and measure det
 * Confusion matrix of LLM qualification label vs. human judgment (once a labeled set exists — see `OPEN_ISSUES.md`)
 * Adjacent-tier mistakes (e.g. `potentially_qualified` vs `clearly_qualified`) are cheaper than inversions (`unqualified` vs `clearly_qualified`)
 * The two error types that still cost differently:
-  * **Over-promotion** — wasted auto-generation on a `clearly_qualified` miss (~$0.065)
+  * **Over-promotion** — a `clearly_qualified` miss ranks the card too high
   * **Under-ranking** — a good job sinks below the fold
 * Under-ranking is worse for the product and invisible to the user, so weight accordingly
 * Include logistics-only cases in the labeled set (right skills, wrong city / arrangement / comp): the label must reflect qualification fit only, so a label lowered for a logistics mismatch is a rubric violation, not an adjacent-tier judgment call (`TASKS_AND_HANDLERS.md`, screen-job)

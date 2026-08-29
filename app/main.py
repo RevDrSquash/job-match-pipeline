@@ -6,6 +6,7 @@ import logging
 
 from fastapi import FastAPI
 
+from app.analyze.llm import AnalysisLLM
 from app.api import create_api_router
 from app.config import Settings, get_settings
 from app.extract.embed import DocumentEmbedder
@@ -33,6 +34,7 @@ def create_app(
     extract_linker: SkillLinker | None = None,
     match_reranker: Reranker | None = None,
     screen_llm: GateLLM | None = None,
+    analyze_llm: AnalysisLLM | None = None,
     generate_llm: GenerateLLM | None = None,
     verify_llm: VerifyLLM | None = None,
     skill_linker: SkillLinker | None = None,
@@ -54,6 +56,7 @@ def create_app(
             extract_linker=extract_linker,
             match_reranker=match_reranker,
             screen_llm=screen_llm,
+            analyze_llm=analyze_llm,
             generate_llm=generate_llm,
             verify_llm=verify_llm,
             skill_linker=skill_linker,

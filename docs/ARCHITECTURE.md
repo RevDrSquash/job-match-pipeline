@@ -89,28 +89,33 @@ Expected-but-alarming log output (e.g. the Gemini AFC warning on every structure
                     │  • cheap LLM screen     │
                     │  → label + reason       │
                     └───────────┬─────────────┘
-                                │ if clearly_qualified AND quota
-                    ┌───────────▼─────────────┐
-                    │  generate-resume        │
-                    │  • cached profile block │
-                    │  • skill mapping        │
-                    │    (matched/adjacent/   │
-                    │     missing)            │
-                    └───────────┬─────────────┘
                                 │
-                    ┌───────────▼─────────────┐
-                    │  verify-resume          │
-                    │  • deterministic checks │
-                    │  • grounding check      │
-                    │    (JD-blind)           │
-                    │  • coverage check       │
-                    └───────────┬─────────────┘
-                                │
-                    ┌───────────▼─────────────┐
-                    │  Delivered to user      │
-                    │  resume + match report  │
-                    │  + paste-ready block    │
-                    └─────────────────────────┘
+           ┌────────────────────┴──────────────────┐
+           │                                       │
+           ▼                                       ▼
+┌─────────────────────────┐          UI Generate (quota-gated)
+│  analyze-batch          │          ┌─────────────────────────┐
+│  daily USD budget,     │          │  generate-resume          │
+│  best-first            │          │  • cached profile block  │
+└───────────┬─────────────┘          │  • skill mapping          │
+            │                       │    (matched/adjacent/     │
+┌───────────▼─────────────┐          │     missing)              │
+│  analyze-match          │          └───────────┬─────────────┘
+│  qualification report   │                      │
+│  (fit + logistics axes) │                      │
+└─────────────────────────┘          ┌───────────▼─────────────┐
+                                    │  verify-resume          │
+                                    │  • deterministic checks │
+                                    │  • grounding check      │
+                                    │    (JD-blind)           │
+                                    │  • coverage check       │
+                                    └───────────┬─────────────┘
+                                                │
+                                    ┌───────────▼─────────────┐
+                                    │  Delivered to user      │
+                                    │  resume + match report  │
+                                    │  + paste-ready block    │
+                                    └─────────────────────────┘
 ```
 
 ## The matching approach
@@ -162,15 +167,16 @@ The LLM grounding check then only handles semantic drift ("led" vs. "contributed
 
 ## Spend control
 
-Three independent caps:
+Four independent caps:
 
 * **Candidates per user per day** (~500 post-filter) — bounds rerank cost against a badly configured profile
 * **`SCREEN_SCORE_FLOOR`** — skip the LLM screen on low-rerank matches; they still appear in the list, unscreened
+* **`ANALYSIS_DAILY_BUDGET_USD`** (default $0.50, analysis stage only) — `analyze-batch` spends it best-first on screened, still-unanalyzed matches
 * **Resume generations per month** (tens) — bounds the dominant cost
 
-Screening is cheap enough to be generous, but the floor is the spend bound on top of Top-N / daily cap. Differentiation is on resume volume, which is also what users perceive as the product.
+Screening is cheap enough to be generous, but the floor is the spend bound on top of Top-N / daily cap. The qualification report is a separate paid stage with its own daily USD cap, not a per-user quota. Differentiation is on resume volume, which is also what users perceive as the product.
 
-Screen labels are billed as COGS, not to the user, and surfaced as a product feature (qualification badge + reasoning on every card) rather than hidden. Without that visibility, users see 50 matches → 12 applications and assume it's broken.
+Screen labels are billed as COGS, not to the user, and surfaced as a product feature (qualification badge + the full report in the match-feed panel) rather than hidden. Without that visibility, users see 50 matches → 12 applications and assume it's broken.
 
 ## Application submission
 

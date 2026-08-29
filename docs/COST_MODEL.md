@@ -85,6 +85,9 @@ The ~1% working number is in the right ballpark **when the profile constrains lo
 | Deterministic gate | ~100/day | ~$0 |
 | Cheap LLM gate | ~100/day | **\~$0.50–1.50** |
 | **Screening subtotal** |  | **\~$0.60–1.80** |
+| Qualification report (`analyze-match`) | global daily USD cap (`ANALYSIS_DAILY_BUDGET_USD`, default $0.50) | **not per-user** — shared across the corpus; best-first |
+
+The analysis stage is a global daily budget, not a per-user line item: `analyze-batch` spends remaining USD on the best screened, still-unanalyzed matches. Resume generation stays manual and quota-gated.
 
 **Rerank chunking caveat:** rerankers bill per search, but documents over ~500 tokens split into chunks that count separately. A raw 3,000-token JD becomes ~6 chunks. Reranking the compact synthesized document instead of the raw JD is both a quality decision and roughly a 5× cost reduction here.
 
@@ -153,12 +156,14 @@ The hybrid gives breakage in our favor (most users won't hit N), a cap against p
 3. **ATS inline content** — skip per-job detail fetches where the list endpoint returns full content
 4. **`SCREEN_SCORE_FLOOR`** — skip the LLM screen on low-rerank matches; they still appear, unscreened
 5. **Compact rerank documents** — avoids the chunking multiplier
-6. **Feedback loop tuning** — `rank_label_disagreement` (high rerank + low label, and the inverse) is what `pipeline_events` pays for; auto-generation only on `clearly_qualified` is the other generation-volume lever
-7. **Fine-tuned small reranker** on accumulated labels — plausibly better *and* cheaper than frontier models used as generic rerankers
+6. **Feedback loop tuning** — `rank_label_disagreement` (high rerank + low label, and the inverse) is what `pipeline_events` pays for; generation volume is bounded by the manual, quota-gated Generate button
+7. **`ANALYSIS_DAILY_BUDGET_USD`** — hard cap on qualification-report spend, independent of match volume
+8. **Fine-tuned small reranker** on accumulated labels — plausibly better *and* cheaper than frontier models used as generic rerankers
 
 ## Open cost questions
 
 * Real token counts for extraction and generation prompts (biggest source of error in this model)
+* Measured `analyze-match` cost vs `ANALYSIS_EST_COST_USD` ($0.01 placeholder; corrects the daily task count)
 * Prompt caching effectiveness in practice
 * Actual candidate survival rate — first cut on the 500-posting seed: **1.4% with a `Remote` location filter, 16.6% unconstrained, 0% on Vancouver**. The ~1% line item holds only under a Remote-like constraint; see DEF-25 / `POC_RESULTS.md`. Re-measure when the labeled owner profile and gemini embeddings land.
 * Whether verification can be cut to one LLM call without losing the JD-blindness property (probably not — the separation is the point)

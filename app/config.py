@@ -91,6 +91,15 @@ class Settings(BaseSettings):
     # matches that already survived MATCH_TOP_N / DAILY_CANDIDATE_CAP.
     screen_score_floor: float | None = None
 
+    # analyze-match qualification report (profile-derived — never log text).
+    # Daily USD cap is on this stage only; analyze-batch spends it best-first.
+    # List prices: Gemini 3.5 Flash $1.50 / $9.00 per 1M tokens (Aug 2026).
+    analysis_model: str = "gemini-3.5-flash"
+    analysis_input_usd_per_mtok: float = 1.50
+    analysis_output_usd_per_mtok: float = 9.00
+    analysis_daily_budget_usd: float = 0.50
+    analysis_est_cost_usd: float = 0.01
+
     # generate-resume: best-available Gemini. Resume text IS personal
     # information — ZDR/no-training terms are a production blocker.
     # Model name lives here, never at call sites.

@@ -10,7 +10,15 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Company, Generation, Job, Match, PipelineEvent, User
+from app.db.models import (
+    Company,
+    Generation,
+    Job,
+    Match,
+    MatchAnalysis,
+    PipelineEvent,
+    User,
+)
 from app.ingest.events import record_pipeline_event
 from app.poc.measure import collect_measurements
 from app.privacy import PrivacySafeError
@@ -92,10 +100,10 @@ def list_matches(
     ).all()
 
     job_ids = [match.job_id for match, _job, _company in rows]
+    match_ids = [match.id for match, _job, _company in rows]
     ui_by_job = _ui_state_by_job(session, user_id=user_id, job_ids=job_ids)
-    generation_by_match = _latest_generation_by_match(
-        session, match_ids=[match.id for match, _job, _company in rows]
-    )
+    generation_by_match = _latest_generation_by_match(session, match_ids=match_ids)
+    analysis_by_match = _analysis_id_by_match(session, match_ids=match_ids)
 
     skill_ids: set[str] = set()
     for match, _job, _company in rows:
@@ -111,6 +119,7 @@ def list_matches(
             company_name,
             ui_state=ui_by_job.get(match.job_id, _empty_ui_state()),
             generation_id=generation_by_match.get(match.id),
+            analysis_id=analysis_by_match.get(match.id),
             label_map=label_map,
         )
         for match, job, company_name in rows
@@ -158,6 +167,23 @@ def get_job(session: Session, job_id: uuid.UUID) -> dict[str, Any]:
         }
     )
     return payload
+
+
+def get_match_analysis(session: Session, match_id: uuid.UUID) -> dict[str, Any]:
+    match = session.get(Match, match_id)
+    if match is None:
+        raise PrivacySafeError("match not found")
+    row = session.scalar(
+        select(MatchAnalysis).where(MatchAnalysis.match_id == match.id)
+    )
+    if row is None:
+        raise PrivacySafeError("analysis not found")
+    return {
+        "id": str(row.id),
+        "match_id": str(match.id),
+        "created_at": _iso(row.created_at),
+        "analysis": row.analysis,
+    }
 
 
 def get_generation(session: Session, generation_id: uuid.UUID) -> dict[str, Any]:
@@ -492,6 +518,23 @@ def _ui_state_by_job(
     return states
 
 
+def _analysis_id_by_match(
+    session: Session, *, match_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, uuid.UUID]:
+    if not match_ids:
+        return {}
+    rows = session.execute(
+        select(MatchAnalysis.match_id, MatchAnalysis.id).where(
+            MatchAnalysis.match_id.in_(match_ids)
+        )
+    ).all()
+    return {
+        match_id: analysis_id
+        for match_id, analysis_id in rows
+        if match_id is not None
+    }
+
+
 def _latest_generation_by_match(
     session: Session, *, match_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, uuid.UUID]:
@@ -537,6 +580,7 @@ def _match_payload(
     *,
     ui_state: dict[str, Any],
     generation_id: uuid.UUID | None,
+    analysis_id: uuid.UUID | None,
     label_map: dict[str, str],
 ) -> dict[str, Any]:
     return {
@@ -555,6 +599,7 @@ def _match_payload(
         "adjacent_skills": _skill_refs(match.adjacent_skills, label_map),
         "missing_skills": _skill_refs(match.missing_skills, label_map),
         "generation_id": str(generation_id) if generation_id else None,
+        "analysis_id": str(analysis_id) if analysis_id else None,
         "ui": ui_state,
     }
 

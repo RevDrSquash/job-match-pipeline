@@ -13,7 +13,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import Company, Concept, Generation, Job, Match, PipelineEvent, User, UserProfile
+from app.db.models import (
+    Company,
+    Concept,
+    Generation,
+    Job,
+    Match,
+    MatchAnalysis,
+    PipelineEvent,
+    User,
+    UserProfile,
+)
 from app.extract.embed import HashingDocumentEmbedder
 from app.ingest.events import record_pipeline_event
 from app.main import create_app
@@ -132,6 +142,42 @@ def _add_match(
     db_session.add(match)
     db_session.flush()
     return match
+
+
+SAMPLE_ANALYSIS = {
+    "verdict": "The profile covers the core backend stack.",
+    "requirements": [
+        {"requirement": "Python", "status": "met", "evidence": "APIs at Prior Co"},
+    ],
+    "nice_to_haves": [],
+    "experience_alignment": {"overall": "Close to the stated bar.", "items": []},
+    "logistics": [
+        {"axis": "location", "jd": "Remote", "profile": "Remote", "status": "match"},
+    ],
+    "gaps_to_address": ["Terraform"],
+    "emphasize": ["Python APIs"],
+    "red_flags": [],
+}
+
+
+def _add_analysis(
+    db_session: Session,
+    user: User,
+    job: Job,
+    match: Match,
+    *,
+    analysis: dict[str, Any] | None = None,
+) -> MatchAnalysis:
+    row = MatchAnalysis(
+        user_id=user.id,
+        job_id=job.id,
+        match_id=match.id,
+        analysis=analysis if analysis is not None else SAMPLE_ANALYSIS,
+        model="gemini-3.5-flash",
+    )
+    db_session.add(row)
+    db_session.flush()
+    return row
 
 
 @pytest.fixture
@@ -352,6 +398,104 @@ def test_get_generation(api_client: TestClient, db_session: Session) -> None:
         {"id": "seed:terraform", "label": "seed:terraform"}
     ]
     assert body["ui"]["applied_at"] is None
+
+
+@requires_db
+def test_list_matches_includes_nullable_analysis_id(
+    api_client: TestClient, db_session: Session
+) -> None:
+    user = _seed_user(db_session)
+    analyzed_job = _add_company_job(db_session, title="Analyzed Role")
+    pending_job = _add_company_job(
+        db_session, title="Pending Analysis", url="https://example.test/jobs/pending-a"
+    )
+    analyzed_match = _add_match(
+        db_session, user, analyzed_job, qualification_label="clearly_qualified"
+    )
+    pending_match = _add_match(
+        db_session, user, pending_job, qualification_label="potentially_qualified"
+    )
+    report = _add_analysis(db_session, user, analyzed_job, analyzed_match)
+
+    response = api_client.get("/api/matches", params={"user_id": str(user.id)})
+    assert response.status_code == 200
+    by_id = {row["id"]: row for row in response.json()["matches"]}
+    assert by_id[str(analyzed_match.id)]["analysis_id"] == str(report.id)
+    assert by_id[str(pending_match.id)]["analysis_id"] is None
+
+
+@requires_db
+def test_list_matches_analysis_id_is_per_latest_match_row(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """A rematch is a new row; the superseded analysis must not leak onto it."""
+    user = _seed_user(db_session)
+    job = _add_company_job(db_session, title="Rematch Analysis")
+    old_cycle = datetime(2026, 8, 18, 5, 1, tzinfo=UTC)
+    new_cycle = datetime(2026, 8, 18, 5, 18, tzinfo=UTC)
+    old_match = _add_match(
+        db_session,
+        user,
+        job,
+        qualification_label="potentially_qualified",
+        cycle_at=old_cycle,
+    )
+    _add_analysis(db_session, user, job, old_match)
+    newest = _add_match(
+        db_session,
+        user,
+        job,
+        qualification_label="clearly_qualified",
+        cycle_at=new_cycle,
+    )
+
+    response = api_client.get("/api/matches", params={"user_id": str(user.id)})
+    assert response.status_code == 200
+    rows = response.json()["matches"]
+    assert len(rows) == 1
+    assert rows[0]["id"] == str(newest.id)
+    assert rows[0]["analysis_id"] is None
+
+
+@requires_db
+def test_get_match_analysis(api_client: TestClient, db_session: Session) -> None:
+    user = _seed_user(db_session)
+    job = _add_company_job(db_session)
+    match = _add_match(db_session, user, job, qualification_label="clearly_qualified")
+    report = _add_analysis(db_session, user, job, match)
+
+    response = api_client.get(f"/api/matches/{match.id}/analysis")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(report.id)
+    assert body["match_id"] == str(match.id)
+    assert body["created_at"] is not None
+    assert body["analysis"]["verdict"] == SAMPLE_ANALYSIS["verdict"]
+    assert body["analysis"]["requirements"][0]["status"] == "met"
+    assert body["analysis"]["gaps_to_address"] == ["Terraform"]
+    assert body["analysis"]["logistics"][0]["axis"] == "location"
+    assert body["analysis"]["emphasize"] == ["Python APIs"]
+    assert body["analysis"]["experience_alignment"]["overall"] == "Close to the stated bar."
+
+
+@requires_db
+def test_get_match_analysis_not_yet_generated(
+    api_client: TestClient, db_session: Session
+) -> None:
+    user = _seed_user(db_session)
+    job = _add_company_job(db_session)
+    match = _add_match(db_session, user, job, qualification_label="potentially_qualified")
+
+    response = api_client.get(f"/api/matches/{match.id}/analysis")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
+@requires_db
+def test_get_match_analysis_unknown_match(api_client: TestClient) -> None:
+    response = api_client.get(f"/api/matches/{uuid.uuid4()}/analysis")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
 
 
 @requires_db

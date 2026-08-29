@@ -6,7 +6,7 @@
 
 **Capture feedback from day one.** `pipeline_events` is the training set for a fine-tuned matching encoder and the main defensible asset. It only materializes if the UI records user actions. Labels not captured at launch cannot be backfilled — they are permanently lost. This is the single most irreversible UI decision.
 
-**Make screen reasoning visible.** Qualification labels are billed as COGS and surfaced as product — a badge and a reason on every card. Without that, a user sees 50 matches produce 12 applications and concludes the system is broken.
+**Make screen reasoning visible.** Qualification labels are billed as COGS and surfaced as product — a badge on every card, with the full qualification report (or the screen's one-line reason while analysis is queued) in the right-hand panel. Without that, a user sees 50 matches produce 12 applications and concludes the system is broken.
 
 **The digest may be the primary interface.** The pipeline is asynchronous; matches arrive on a cycle. Without notification the user has no reason to return. Design the web app as the place you act on a digest, not as somewhere people idly browse.
 
@@ -119,9 +119,9 @@ The premise: people omit things that belong on a resume because they don't reali
 
 The primary logged-in surface.
 
-One ordered list, best matches first. Per match: title, company, location, comp, match score, **qualification label**, **matched skills**, **missing skills**, and the screen's stated reason. Unscreened matches (below the score floor, or still in flight) appear below screened ones.
+One ordered list, best matches first. Per match: title, company, location, comp, match score, **qualification label**, **matched skills**, and **missing skills**. Unscreened matches (below the score floor, or still in flight) appear below screened ones. Cards that already have a qualification report show an "Analysis ready" affordance; the screen's one-line reason is not repeated on the card.
 
-In the local UI, this is a two-column workspace: ranked match cards on the left and the selected job's full description on the right (stacked responsively on narrow screens). The list payload stays lean; selecting a card fetches `GET /api/jobs/{job_id}` on demand. The viewer prefers the stored, sanitized `raw_jd_html` and falls back to stripped `raw_jd` for legacy or plain-text-only rows. This logged-in/local surface may also link to the original posting; the metadata-only restriction still applies to future unauthenticated public search.
+In the local UI, this is a two-column workspace: ranked match cards on the left and the selected match's **qualification report** on the right (stacked responsively on narrow screens). The list payload stays lean (`analysis_id` is nullable). Selecting a card fetches `GET /api/jobs/{job_id}` and, when `analysis_id` is set, `GET /api/matches/{id}/analysis`; both are cached for the session. The right panel renders the report (verdict, requirement coverage, experience alignment, logistics checklist, gaps, emphasize, red flags) above a **Job description** section that is collapsed by default and expands to the stored, sanitized `raw_jd_html` (falling back to stripped `raw_jd`). Until an analysis exists, the panel shows "Analysis queued — runs best-matches-first within the daily budget" plus the interim `screen_reason` so it is never empty. This logged-in/local surface may also link to the original posting; the metadata-only restriction still applies to future unauthenticated public search. The `/jobs` search page keeps the plain description viewer.
 
 **Actions — each writes to** `pipeline_events`**:**
 
@@ -201,7 +201,7 @@ Also needed: quota exhausted, no matches at current filters (with a link to loos
 
 Business metrics — indexed jobs, users, cost, revenue — plus the operational ones that actually catch problems:
 
-* **Per-stage funnel counts** — ingested → prefiltered → extracted → reranked → gated → generated → applied. Where candidates die is where the bugs are.
+* **Per-stage funnel counts** — ingested → prefiltered → extracted → reranked → gated → analyzed → generated → applied. Where candidates die is where the bugs are.
 * **Extraction coverage %** of corpus (drives the cost projection)
 * **Qualification-label distribution**, trended
 * **Rank/label disagreement log** — the tuning signal named in Architecture
@@ -251,7 +251,8 @@ Read endpoints (thin queries over existing models):
 | -- | -- |
 | `GET /api/users` | id, tier, quota |
 | `GET /api/profile?user_id=` | profile + filters + resolved `skills` labels (same base shape as `jobmatch profile show`) |
-| `GET /api/matches?user_id=` | single ranked list: match cards with job metadata, skill buckets as `{id, label}`, `qualification_label` / `screen_reason`, latest UI state. Ordered by label tier then `rerank_score`. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones) |
+| `GET /api/matches?user_id=` | single ranked list: match cards with job metadata, skill buckets as `{id, label}`, `qualification_label` / `screen_reason`, nullable `analysis_id` / `generation_id`, latest UI state. Ordered by label tier then `rerank_score`. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones) |
+| `GET /api/matches/{id}/analysis` | qualification report JSONB (`verdict`, coverage, logistics, gaps, emphasize, red flags) plus `created_at`. 404 when the match or analysis does not exist yet |
 | `GET /api/jobs?q=` | local keyword search (`ILIKE` on title, company name, location). Empty `q` returns recent jobs (`posted_at DESC`, cap 50). Card fields only: id, title, company, location, comp, posted date, `extracted_at`. No LLM calls. |
 | `GET /api/jobs/{id}` | local job detail used by job pages and the match-feed viewer: same metadata plus `url`, `raw_jd`, sanitized `raw_jd_html` (nullable; display-only), and extracted fields (`seniority`, `hard_requirements`, `nice_to_haves`) when present |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |

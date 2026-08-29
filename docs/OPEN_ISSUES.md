@@ -30,11 +30,11 @@ seed postings before treating the number as a quality signal. The runner
 warns (and can refuse with `--require-gemini-embeddings`) when
 `EMBEDDING_PROVIDER=hashing`.
 
-## 3. Queue list omits `fetch-link-list` and `match-batch`
+## 3. Queue list omits Scheduler-invoked handlers
 
-The Queues table in Tasks and Handlers lists five queues but both Scheduler-triggered handlers (`fetch-link-list`, `match-batch`) are absent. Presumably Cloud Scheduler invokes them directly over HTTP (OIDC) without a queue in between, but this is never stated. Irrelevant locally (the local `TaskQueue` posts to handlers directly); decide and document before the Terraform work.
+The Queues table in Tasks and Handlers lists the leaf queues (`ingest-job`, `extract-job`, `screen-job`, `analyze-match`, `generate-resume`, `verify-resume`). Scheduler-invoked handlers (`fetch-link-list`, `match-batch`, `analyze-batch`) are not queued — Cloud Scheduler (locally the `jobmatch` CLI) POSTs them over HTTP, and they enqueue leaf work. Stated in `TASKS_AND_HANDLERS.md`; decide Terraform wiring before the cloud cut.
 
-**Deterministic task names (deferred).** Docs used to describe named-task redelivery-dedup as current behavior. Neither `LocalTaskQueue` nor `CloudTasksQueue` sets a task name; correctness rests on handler idempotency (`extracted_at IS NULL`, `skipped_screened`, `skipped_existing`) plus in-process `job_id` dedup in `match-batch`. Named tasks are a cost optimization, not a correctness requirement. Before Terraform: add an optional `dedup_key` to `TaskQueue.enqueue`, set `task.name` from it in `CloudTasksQueue`, no-op locally.
+**Deterministic task names (deferred).** Docs used to describe named-task redelivery-dedup as current behavior. Neither `LocalTaskQueue` nor `CloudTasksQueue` sets a task name; correctness rests on handler idempotency (`extracted_at IS NULL`, `skipped_screened`, `skipped_analyzed`, `skipped_existing`) plus in-process `job_id` dedup in `match-batch`. Named tasks are a cost optimization, not a correctness requirement. Before Terraform: add an optional `dedup_key` to `TaskQueue.enqueue`, set `task.name` from it in `CloudTasksQueue`, no-op locally.
 
 ## 4. Schema sketch is not migration-ready
 
@@ -213,8 +213,18 @@ Implementation plan lives in Linear **DEF-35**: `generations` gains `user_id` (F
 
 DEF-30 replaced the binary gate verdict with an ordinal qualification label. `docs/EVALUATION.md` §7 now describes a label/ranking eval (confusion matrix vs. human judgment, adjacent-tier vs. inversion errors). There is no labeled set yet — the current `jobmatch evals run` suites (extraction, skill linking, retrieval, fabrication) do not cover the screen prompt. Add a versioned screen-label fixture set before treating prompt edits as gated by that suite. Until then, re-run the existing four suites on screen-prompt changes (operational discipline) and rely on `rank_label_disagreement` events plus the owner's live review.
 
-## 16. Qualification report — logistics axes surfaced separately (future work)
+## 16. Qualification report — logistics axes surfaced separately
 
 **Decision (owner, 2026-08-19):** the screen's qualification label measures qualification fit only — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes and must not move the label or drive `screen_reason`. Trigger: a live screen labeled a strong-overlap match `unqualified` with the reason "the candidate is not currently based in the San Francisco Bay Area or New York City as required by the role." The gate prompt (`app/screen/llm.py`) and the screen-job doc now say this explicitly; `docs/EVALUATION.md` §7 counts logistics-lowered labels as rubric violations.
 
-Logistics mismatches still carry real information the user should see — the prefilter only catches what `user_filters` constrains, so an in-role, wrong-city posting legitimately reaches the screen. **Future work:** a comprehensive per-match "qualification report" that presents the fit judgment and the logistics axes side by side (e.g. qualification label + a location/arrangement/auth/comp checklist), instead of collapsing everything into one label and one sentence. Undesigned; no schema or UI commitment yet. Until it exists, logistics mismatches simply don't appear in the screen output.
+**Implemented (2026-08-28):** `analyze-match` writes a `match_analyses` JSONB report (`ANALYSIS_MODEL`, default `gemini-3.5-flash`) with this shape:
+
+* `verdict` — 2–4 sentence qualification-only fit judgment (logistics must not appear)
+* `requirements` / `nice_to_haves` — `{requirement, status: met|adjacent|missing|unclear, evidence}` using JD phrasing
+* `experience_alignment` — overall plus every explicit YOE minimum vs dated work history
+* `logistics` — location / arrangement / comp / authorization / timezone checklist, separate from the verdict
+* `gaps_to_address` — real candidate gaps, explicitly not resume-fixable
+* `emphasize` — strongest grounded evidence to lead with if applying
+* `red_flags` — knockout risks and JD oddities
+
+Coverage, YOE alignment, gaps, emphasize, and red flags come from the resume-toolkit `extract-job-signals` / `review-resume` skills. `analyze-batch` spends `ANALYSIS_DAILY_BUDGET_USD` (default $0.50, this stage only) best-first on screened, unanalyzed latest-match-per-job rows. One analysis per match row; a dirty rematch is a new row and becomes eligible again. Resume generation stays manual and quota-gated (`POST /api/matches/{id}/generate`).
