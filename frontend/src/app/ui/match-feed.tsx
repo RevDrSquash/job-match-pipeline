@@ -6,15 +6,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   fetchJob,
+  fetchMatchAnalysis,
   fetchMatches,
   fetchUsers,
   recordMatchEvent,
   requestGeneration,
 } from "@/lib/api";
-import type { JobDetail, Match, SkillRef, User } from "@/lib/types";
+import type { JobDetail, Match, MatchAnalysis, SkillRef, User } from "@/lib/types";
 import { isCanonicalConceptId, skillDisplayLabel } from "@/lib/skills";
 import styles from "@/app/dashboard.module.css";
-import JobDescriptionViewer from "@/app/ui/job-description-viewer";
+import MatchInsightPanel from "@/app/ui/match-insight-panel";
 
 const SKIP_REASONS = [
   ["not_interested", "Not interested"],
@@ -123,10 +124,17 @@ export default function MatchFeed() {
   const [selectedJob, setSelectedJob] = useState<JobDetail | null>(null);
   const [loadingJobId, setLoadingJobId] = useState("");
   const [jobError, setJobError] = useState("");
+  const [selectedAnalysis, setSelectedAnalysis] = useState<MatchAnalysis | null>(
+    null,
+  );
+  const [loadingAnalysisId, setLoadingAnalysisId] = useState("");
+  const [analysisError, setAnalysisError] = useState("");
   const viewedIds = useRef(new Set<string>());
   const jobCache = useRef(new Map<string, JobDetail>());
+  const analysisCache = useRef(new Map<string, MatchAnalysis>());
   const selectedJobIdRef = useRef("");
   const jobRequestId = useRef(0);
+  const analysisRequestId = useRef(0);
 
   const loadJob = useCallback((jobId: string, force = false) => {
     const requestId = ++jobRequestId.current;
@@ -167,6 +175,50 @@ export default function MatchFeed() {
       });
   }, []);
 
+  const loadAnalysis = useCallback((match: Match | null, force = false) => {
+    const requestId = ++analysisRequestId.current;
+
+    if (!match) {
+      setSelectedAnalysis(null);
+      setLoadingAnalysisId("");
+      setAnalysisError("");
+      return;
+    }
+
+    if (!match.analysis_id) {
+      setSelectedAnalysis(null);
+      setLoadingAnalysisId("");
+      setAnalysisError("");
+      return;
+    }
+
+    const cached = analysisCache.current.get(match.id);
+    if (cached && !force) {
+      setSelectedAnalysis(cached);
+      setLoadingAnalysisId("");
+      setAnalysisError("");
+      return;
+    }
+
+    setSelectedAnalysis(null);
+    setLoadingAnalysisId(match.id);
+    setAnalysisError("");
+    fetchMatchAnalysis(match.id)
+      .then((payload) => {
+        if (payload) analysisCache.current.set(match.id, payload);
+        if (analysisRequestId.current === requestId) setSelectedAnalysis(payload);
+      })
+      .catch((reason: unknown) => {
+        if (analysisRequestId.current !== requestId) return;
+        setAnalysisError(
+          reason instanceof Error ? reason.message : "Unable to load the match analysis.",
+        );
+      })
+      .finally(() => {
+        if (analysisRequestId.current === requestId) setLoadingAnalysisId("");
+      });
+  }, []);
+
   useEffect(() => {
     let active = true;
     fetchUsers()
@@ -197,10 +249,15 @@ export default function MatchFeed() {
         if (!active) return;
         setMatches(rows);
         const current = selectedJobIdRef.current;
-        const nextJobId = rows.some((match) => match.job_id === current)
-          ? current
-          : (rows[0]?.job_id ?? "");
-        loadJob(nextJobId);
+        const nextMatch =
+          rows.find((match) => match.job_id === current) ?? rows[0] ?? null;
+        if (nextMatch) {
+          loadJob(nextMatch.job_id);
+          loadAnalysis(nextMatch);
+        } else {
+          loadJob("");
+          loadAnalysis(null);
+        }
         setError("");
         setLoadedMatchKey(matchKey);
       })
@@ -212,7 +269,7 @@ export default function MatchFeed() {
     return () => {
       active = false;
     };
-  }, [loadJob, matchKey, userId]);
+  }, [loadAnalysis, loadJob, matchKey, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -241,12 +298,13 @@ export default function MatchFeed() {
     );
   };
 
-  const selectJob = (jobId: string) => {
-    loadJob(jobId);
+  const selectMatch = (match: Match) => {
+    loadJob(match.job_id);
+    loadAnalysis(match);
     if (window.matchMedia("(max-width: 850px)").matches) {
       requestAnimationFrame(() => {
         document
-          .getElementById("match-job-description")
+          .getElementById("match-insight")
           ?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
@@ -455,7 +513,7 @@ export default function MatchFeed() {
                     ) {
                       return;
                     }
-                    selectJob(match.job_id);
+                    selectMatch(match);
                   }}
                 >
               <div>
@@ -486,7 +544,7 @@ export default function MatchFeed() {
                 <button
                   aria-pressed={match.job_id === selectedJobId}
                   className={styles.matchHeadingButton}
-                  onClick={() => selectJob(match.job_id)}
+                  onClick={() => selectMatch(match)}
                   type="button"
                 >
                   <span className={styles.matchTitle}>
@@ -497,8 +555,10 @@ export default function MatchFeed() {
                   </span>
                   <span className={styles.viewDescription}>
                     {match.job_id === selectedJobId
-                      ? "Viewing description"
-                      : "View description →"}
+                      ? "Viewing analysis"
+                      : match.analysis_id
+                        ? "Analysis ready →"
+                        : "View analysis →"}
                   </span>
                 </button>
 
@@ -518,13 +578,6 @@ export default function MatchFeed() {
                     <SkillChips skills={match.missing_skills} tone="missing" />
                   </div>
                 </div>
-
-                {match.screen_reason && (
-                  <div className={styles.gateReason}>
-                    <strong>Screen note</strong>
-                    {match.screen_reason}
-                  </div>
-                )}
               </div>
 
               <div className={styles.cardActions}>
@@ -643,15 +696,21 @@ export default function MatchFeed() {
             </div>
           </div>
 
-          <JobDescriptionViewer
-            emptyDescription="Choose a role to read its full job description here."
-            emptyTitle="Select a match"
-            error={jobError}
+          <MatchInsightPanel
+            analysis={
+              selectedAnalysis?.match_id === selectedMatch?.id
+                ? selectedAnalysis
+                : null
+            }
+            analysisError={analysisError}
             job={selectedJob?.id === selectedJobId ? selectedJob : null}
-            loading={loadingJobId === selectedJobId}
-            onRetry={() => loadJob(selectedJobId, true)}
-            panelId="match-job-description"
-            summary={selectedMatch}
+            jobError={jobError}
+            loadingAnalysis={loadingAnalysisId === selectedMatch?.id}
+            loadingJob={loadingJobId === selectedJobId}
+            match={selectedMatch}
+            onRetryAnalysis={() => selectedMatch && loadAnalysis(selectedMatch, true)}
+            onRetryJob={() => loadJob(selectedJobId, true)}
+            panelId="match-insight"
           />
         </div>
       )}

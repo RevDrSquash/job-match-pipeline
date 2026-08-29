@@ -3,6 +3,7 @@ import type {
   JobDetail,
   JobSummary,
   Match,
+  MatchAnalysis,
   Profile,
   SkillDetail,
   SkillGraphPayload,
@@ -45,6 +46,26 @@ export async function fetchMatches(userId: string): Promise<Match[]> {
   const query = new URLSearchParams({ user_id: userId });
   const result = await request<{ matches: Match[] }>(`/api/matches?${query}`);
   return result.matches;
+}
+
+export async function fetchMatchAnalysis(
+  matchId: string,
+): Promise<MatchAnalysis | null> {
+  const response = await fetch(`/api/matches/${matchId}/analysis`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) message = body.detail;
+    } catch {
+      // Keep the status-based message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as MatchAnalysis;
 }
 
 export function fetchProfile(userId: string): Promise<Profile> {

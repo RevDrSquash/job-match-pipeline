@@ -43,7 +43,54 @@ export type Match = {
   adjacent_skills: SkillRef[];
   missing_skills: SkillRef[];
   generation_id: string | null;
+  analysis_id: string | null;
   ui: MatchUiState;
+};
+
+export type AnalysisRequirementStatus = "met" | "adjacent" | "missing" | "unclear";
+
+export type AnalysisRequirement = {
+  requirement: string;
+  status: AnalysisRequirementStatus | string;
+  evidence: string;
+};
+
+export type AnalysisExperienceAsk = {
+  skill: string;
+  required_years: number | null;
+  profile_years: number | null;
+  kind: "required" | "preferred" | string;
+  status: "met" | "short" | "unclear" | "not_stated" | string;
+};
+
+export type AnalysisExperienceAlignment = {
+  overall: string;
+  items: AnalysisExperienceAsk[];
+};
+
+export type AnalysisLogisticsItem = {
+  axis: "location" | "arrangement" | "comp" | "authorization" | "timezone" | string;
+  jd: string;
+  profile: string;
+  status: "match" | "mismatch" | "unclear" | "not_stated" | string;
+};
+
+export type MatchAnalysisReport = {
+  verdict: string;
+  requirements: AnalysisRequirement[];
+  nice_to_haves: AnalysisRequirement[];
+  experience_alignment: AnalysisExperienceAlignment;
+  logistics: AnalysisLogisticsItem[];
+  gaps_to_address: string[];
+  emphasize: string[];
+  red_flags: string[];
+};
+
+export type MatchAnalysis = {
+  id: string;
+  match_id: string;
+  created_at: string;
+  analysis: MatchAnalysisReport;
 };
 
 export type WorkBullet = {
