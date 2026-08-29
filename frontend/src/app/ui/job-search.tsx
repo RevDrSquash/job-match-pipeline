@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -217,16 +216,7 @@ export default function JobSearch() {
                     job.id === selectedJobId ? styles.selectedMatchCard : ""
                   }`}
                   key={job.id}
-                  onClick={(event) => {
-                    if (
-                      (event.target as HTMLElement).closest(
-                        "button, a, input, select, textarea",
-                      )
-                    ) {
-                      return;
-                    }
-                    selectJob(job.id);
-                  }}
+                  onClick={() => selectJob(job.id)}
                 >
                   <div>
                     <div className={styles.matchTopline}>
@@ -239,7 +229,10 @@ export default function JobSearch() {
                     <button
                       aria-pressed={job.id === selectedJobId}
                       className={styles.matchHeadingButton}
-                      onClick={() => selectJob(job.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        selectJob(job.id);
+                      }}
                       type="button"
                     >
                       <span className={styles.matchTitle}>
@@ -248,17 +241,7 @@ export default function JobSearch() {
                       <span className={styles.companyLine}>
                         {job.company || "Company not listed"}
                       </span>
-                      <span className={styles.viewDescription}>
-                        {job.id === selectedJobId
-                          ? "Viewing description"
-                          : "View description →"}
-                      </span>
                     </button>
-                  </div>
-                  <div className={styles.cardActions}>
-                    <Link className={styles.button} href={`/jobs/${job.id}`}>
-                      Open full page
-                    </Link>
                   </div>
                 </article>
               ))}
