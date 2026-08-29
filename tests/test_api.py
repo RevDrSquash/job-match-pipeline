@@ -474,6 +474,8 @@ def test_get_match_analysis(api_client: TestClient, db_session: Session) -> None
     assert body["analysis"]["requirements"][0]["status"] == "met"
     assert body["analysis"]["gaps_to_address"] == ["Terraform"]
     assert body["analysis"]["logistics"][0]["axis"] == "location"
+    assert body["analysis"]["emphasize"] == ["Python APIs"]
+    assert body["analysis"]["experience_alignment"]["overall"] == "Close to the stated bar."
 
 
 @requires_db

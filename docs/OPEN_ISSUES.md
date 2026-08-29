@@ -30,11 +30,11 @@ seed postings before treating the number as a quality signal. The runner
 warns (and can refuse with `--require-gemini-embeddings`) when
 `EMBEDDING_PROVIDER=hashing`.
 
-## 3. Queue list omits `fetch-link-list` and `match-batch`
+## 3. Queue list omits Scheduler-invoked handlers
 
-The Queues table in Tasks and Handlers lists five queues but both Scheduler-triggered handlers (`fetch-link-list`, `match-batch`) are absent. Presumably Cloud Scheduler invokes them directly over HTTP (OIDC) without a queue in between, but this is never stated. Irrelevant locally (the local `TaskQueue` posts to handlers directly); decide and document before the Terraform work.
+The Queues table in Tasks and Handlers lists the leaf queues (`ingest-job`, `extract-job`, `screen-job`, `analyze-match`, `generate-resume`, `verify-resume`). Scheduler-invoked handlers (`fetch-link-list`, `match-batch`, `analyze-batch`) are not queued — Cloud Scheduler (locally the `jobmatch` CLI) POSTs them over HTTP, and they enqueue leaf work. Stated in `TASKS_AND_HANDLERS.md`; decide Terraform wiring before the cloud cut.
 
-**Deterministic task names (deferred).** Docs used to describe named-task redelivery-dedup as current behavior. Neither `LocalTaskQueue` nor `CloudTasksQueue` sets a task name; correctness rests on handler idempotency (`extracted_at IS NULL`, `skipped_screened`, `skipped_existing`) plus in-process `job_id` dedup in `match-batch`. Named tasks are a cost optimization, not a correctness requirement. Before Terraform: add an optional `dedup_key` to `TaskQueue.enqueue`, set `task.name` from it in `CloudTasksQueue`, no-op locally.
+**Deterministic task names (deferred).** Docs used to describe named-task redelivery-dedup as current behavior. Neither `LocalTaskQueue` nor `CloudTasksQueue` sets a task name; correctness rests on handler idempotency (`extracted_at IS NULL`, `skipped_screened`, `skipped_analyzed`, `skipped_existing`) plus in-process `job_id` dedup in `match-batch`. Named tasks are a cost optimization, not a correctness requirement. Before Terraform: add an optional `dedup_key` to `TaskQueue.enqueue`, set `task.name` from it in `CloudTasksQueue`, no-op locally.
 
 ## 4. Schema sketch is not migration-ready
 
@@ -217,4 +217,14 @@ DEF-30 replaced the binary gate verdict with an ordinal qualification label. `do
 
 **Decision (owner, 2026-08-19):** the screen's qualification label measures qualification fit only — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes and must not move the label or drive `screen_reason`. Trigger: a live screen labeled a strong-overlap match `unqualified` with the reason "the candidate is not currently based in the San Francisco Bay Area or New York City as required by the role." The gate prompt (`app/screen/llm.py`) and the screen-job doc now say this explicitly; `docs/EVALUATION.md` §7 counts logistics-lowered labels as rubric violations.
 
-**Implemented (2026-08-28):** `analyze-match` writes a `match_analyses` JSONB report with a qualification-only `verdict` beside a `logistics` checklist (location / arrangement / comp / authorization / timezone). Coverage, YOE alignment, `gaps_to_address`, `emphasize`, and `red_flags` come from the resume-toolkit `extract-job-signals` / `review-resume` skills. `analyze-batch` spends `ANALYSIS_DAILY_BUDGET_USD` best-first on screened, unanalyzed latest-match-per-job rows. Resume generation stays manual and quota-gated.
+**Implemented (2026-08-28):** `analyze-match` writes a `match_analyses` JSONB report (`ANALYSIS_MODEL`, default `gemini-3.5-flash`) with this shape:
+
+* `verdict` — 2–4 sentence qualification-only fit judgment (logistics must not appear)
+* `requirements` / `nice_to_haves` — `{requirement, status: met|adjacent|missing|unclear, evidence}` using JD phrasing
+* `experience_alignment` — overall plus every explicit YOE minimum vs dated work history
+* `logistics` — location / arrangement / comp / authorization / timezone checklist, separate from the verdict
+* `gaps_to_address` — real candidate gaps, explicitly not resume-fixable
+* `emphasize` — strongest grounded evidence to lead with if applying
+* `red_flags` — knockout risks and JD oddities
+
+Coverage, YOE alignment, gaps, emphasize, and red flags come from the resume-toolkit `extract-job-signals` / `review-resume` skills. `analyze-batch` spends `ANALYSIS_DAILY_BUDGET_USD` (default $0.50, this stage only) best-first on screened, unanalyzed latest-match-per-job rows. One analysis per match row; a dirty rematch is a new row and becomes eligible again. Resume generation stays manual and quota-gated (`POST /api/matches/{id}/generate`).

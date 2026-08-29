@@ -68,6 +68,7 @@ Volume and data sensitivity sit on opposite sides of this pipeline, which makes 
 | `extract-job` | **No** | high | Cheapest adequate model; no residency constraint |
 | Profile parsing | Yes | 1× per user | Best available, ZDR terms |
 | `screen-job` | **Yes** (condensed profile) | ~100/user/day | Cheap model (`GATE_MODEL`); ZDR terms required. Condensed JD is not PI. Never log prompt/completion text. |
+| `analyze-match` | **Yes** (work history + synthesized profile) | bounded by `ANALYSIS_DAILY_BUDGET_USD` (~50/day at the $0.01 estimate) | `ANALYSIS_MODEL` (`gemini-3.5-flash`); ZDR terms. Report stored on `match_analyses` only; `pipeline_events.details` gets tokens/cost/latency, never text. |
 | `generate-resume` | Yes | tens/user/mo | Best available, ZDR terms |
 | `verify-resume` | Yes | tens/user/mo | Best available, different family from generator |
 
@@ -117,7 +118,7 @@ Note: job postings themselves are not personal information, so the `jobs` table 
 * Retain `raw_jd` for audit; retain raw uploaded resumes only as long as needed to re-parse
 * Access logging on anything touching `user_profiles`
 * No personal information in application logs — including no resume text in error traces, which is an easy accidental leak. LLM SDK errors are remapped in `app/llm/errors.py` so upstream args (which can echo prompt/completion text) never reach logs or exception messages.
-* **Do not enable LangSmith tracing.** `LANGSMITH_TRACING` must stay unset. Traces include full prompts and completions; on `screen-job`, `generate-resume`, `verify-resume`, and profile parse those prompts are personal information.
+* **Do not enable LangSmith tracing.** `LANGSMITH_TRACING` must stay unset. Traces include full prompts and completions; on `screen-job`, `analyze-match`, `generate-resume`, `verify-resume`, and profile parse those prompts are personal information.
 
 ## Related: the submission boundary
 

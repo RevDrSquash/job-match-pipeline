@@ -201,7 +201,7 @@ Also needed: quota exhausted, no matches at current filters (with a link to loos
 
 Business metrics — indexed jobs, users, cost, revenue — plus the operational ones that actually catch problems:
 
-* **Per-stage funnel counts** — ingested → prefiltered → extracted → reranked → gated → generated → applied. Where candidates die is where the bugs are.
+* **Per-stage funnel counts** — ingested → prefiltered → extracted → reranked → gated → analyzed → generated → applied. Where candidates die is where the bugs are.
 * **Extraction coverage %** of corpus (drives the cost projection)
 * **Qualification-label distribution**, trended
 * **Rank/label disagreement log** — the tuning signal named in Architecture

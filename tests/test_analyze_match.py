@@ -309,6 +309,48 @@ def test_analyze_match_idempotent_redelivery(db_session: Session) -> None:
 
 
 @requires_db
+def test_analyze_match_falls_back_to_synthesized_doc(db_session: Session) -> None:
+    user = _add_user(db_session)
+    job = _add_job(
+        db_session,
+        raw_jd=None,
+        synthesized_doc="Title: Backend Engineer\nSkills: Python, Terraform",
+    )
+    match = _add_match(db_session, user, job)
+    llm = FakeAnalysisLLM(SAMPLE_REPORT)
+
+    result = analyze_match(
+        db_session, {"match_id": str(match.id)}, llm=llm, settings=Settings()
+    )
+
+    assert result.action == "analyzed"
+    assert llm.calls == 1
+    assert "Title: Backend Engineer" in (llm.last_user_text or "")
+    assert "Python, Terraform" in (llm.last_user_text or "")
+
+
+@requires_db
+def test_analyze_match_unknown_match(db_session: Session) -> None:
+    missing_id = uuid.uuid4()
+    llm = FakeAnalysisLLM(SAMPLE_REPORT)
+    result = analyze_match(
+        db_session,
+        {"match_id": str(missing_id)},
+        llm=llm,
+        settings=Settings(),
+    )
+    assert result.action == "not_found"
+    assert llm.calls == 0
+    actions = [
+        e.action
+        for e in db_session.scalars(
+            select(PipelineEvent).where(PipelineEvent.stage == "analyze-match")
+        ).all()
+    ]
+    assert "not_found" in actions
+
+
+@requires_db
 def test_analyze_match_missing_docs(db_session: Session) -> None:
     user = _add_user(db_session)
     job = _add_job(db_session, raw_jd=None, synthesized_doc=None)
@@ -329,6 +371,22 @@ def test_analyze_match_missing_docs(db_session: Session) -> None:
         ).all()
     ]
     assert "missing_docs" in actions
+
+
+@requires_db
+def test_analyze_match_empty_profile_is_missing_docs(db_session: Session) -> None:
+    user = _add_user(db_session, synthesized_doc=None, work_history=[])
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job)
+    llm = FakeAnalysisLLM(SAMPLE_REPORT)
+
+    result = analyze_match(
+        db_session, {"match_id": str(match.id)}, llm=llm, settings=Settings()
+    )
+
+    assert result.action == "missing_docs"
+    assert llm.calls == 0
+    assert db_session.scalar(select(MatchAnalysis)) is None
 
 
 @requires_db

@@ -24,6 +24,14 @@ from tests.conftest import requires_db
 from tests.llm_fakes import FakeStructuredChat
 
 
+class RecordingQueue:
+    def __init__(self) -> None:
+        self.tasks: list[tuple[str, dict]] = []
+
+    def enqueue(self, queue_name: str, payload: dict, delay: int | None = None) -> None:
+        self.tasks.append((queue_name, dict(payload)))
+
+
 class FakeGateLLM:
     def __init__(self, decision: GateDecision | Exception) -> None:
         self.decision = decision
@@ -234,6 +242,10 @@ def test_clearly_qualified_does_not_enqueue_or_consume_quota(
         (e.details or {}).get("qualification_label") == "clearly_qualified" for e in events
     )
     assert not any(e.action == "quota_exhausted" for e in events)
+    assert not any(
+        e.stage == "generate-resume" and e.user_id == user.id
+        for e in db_session.scalars(select(PipelineEvent)).all()
+    )
 
 
 @requires_db
@@ -483,9 +495,10 @@ def _delete_screen_rows(user_id: uuid.UUID, job_id: uuid.UUID, match_id: uuid.UU
 def test_screen_http_success_then_noop(apply_migrations: None) -> None:
     user_id, job_id, match_id = _committed_match()
     settings = Settings(queue_impl="local", enable_debug_capture=False)
+    queue = RecordingQueue()
     application = create_app(
         settings=settings,
-        queue=LocalTaskQueue("http://127.0.0.1:9"),
+        queue=queue,
         screen_llm=FakeGateLLM(CLEARLY),
     )
     try:
@@ -500,6 +513,7 @@ def test_screen_http_success_then_noop(apply_migrations: None) -> None:
             second = client.post("/handlers/screen-job", json={"match_id": str(match_id)})
             assert second.status_code == 200
             assert second.json()["action"] == "skipped_screened"
+        assert queue.tasks == []
     finally:
         _delete_screen_rows(user_id, job_id, match_id)
 

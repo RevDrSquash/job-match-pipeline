@@ -10,7 +10,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.analyze.batch import analyze_batch
@@ -179,6 +179,86 @@ def test_analyze_batch_best_first_ordering(db_session: Session) -> None:
     assert enqueued_ids == [str(clear.id), str(potential.id)]
     assert str(unqualified.id) not in enqueued_ids
     assert all(name == "analyze-match" for name, _payload in queue.tasks)
+
+
+@requires_db
+def test_analyze_batch_ignores_prior_day_spend(db_session: Session) -> None:
+    user = _add_user(db_session)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job, label="clearly_qualified", rerank_score=0.9)
+    clock = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
+    db_session.add(
+        PipelineEvent(
+            stage="analyze-match",
+            action="analyzed",
+            user_id=user.id,
+            job_id=job.id,
+            details={"cost_usd": 0.50},
+            ts=clock - timedelta(days=1),
+        )
+    )
+    db_session.flush()
+    queue = RecordingQueue()
+
+    result = analyze_batch(
+        db_session,
+        {"user_ids": [str(user.id)]},
+        queue,
+        settings=Settings(analysis_daily_budget_usd=0.50, analysis_est_cost_usd=0.01),
+        now=clock,
+    )
+
+    assert result.spent_usd == pytest.approx(0.0)
+    assert result.remaining_usd == pytest.approx(0.50)
+    assert result.task_count == 50
+    assert result.enqueued == 1
+    assert queue.tasks[0][1]["match_id"] == str(match.id)
+
+
+@requires_db
+def test_analyze_batch_writes_cycle_events(db_session: Session) -> None:
+    user = _add_user(db_session)
+    job = _add_job(db_session)
+    match = _add_match(db_session, user, job, label="clearly_qualified", rerank_score=0.8)
+    queue = RecordingQueue()
+    before_ids = set(db_session.scalars(select(PipelineEvent.id)).all())
+
+    analyze_batch(
+        db_session,
+        {"user_ids": [str(user.id)]},
+        queue,
+        settings=Settings(analysis_daily_budget_usd=0.50, analysis_est_cost_usd=0.01),
+    )
+
+    events = [
+        e
+        for e in db_session.scalars(
+            select(PipelineEvent).where(PipelineEvent.stage == "analyze-batch")
+        ).all()
+        if e.id not in before_ids
+    ]
+    actions = [e.action for e in events]
+    assert actions.count("started") == 1
+    assert actions.count("enqueued_analyze") == 1
+    assert actions.count("completed") == 1
+    completed = next(e for e in events if e.action == "completed")
+    details = completed.details or {}
+    assert details["enqueued"] == 1
+    assert details["task_count"] >= 1
+    assert set(details) >= {
+        "spent_usd",
+        "remaining_usd",
+        "budget_usd",
+        "est_cost_usd",
+        "task_count",
+        "enqueued",
+    }
+    assert "verdict" not in details
+    assert "analysis" not in details
+    enqueued = next(e for e in events if e.action == "enqueued_analyze")
+    assert enqueued.user_id == user.id
+    assert enqueued.job_id == job.id
+    assert enqueued.score == pytest.approx(match.rerank_score)
 
 
 @requires_db

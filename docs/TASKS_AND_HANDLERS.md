@@ -8,7 +8,7 @@
 * **LLM failure classification** (shared plumbing in `app/llm/`): LangChain/SDK transport errors, 408/429/5xx are retryable (5xx). 401/403/404 are operator config errors — bad key or model name — that affect every task and bill no tokens, so they also stay retryable rather than dropping work as permanent. Any other request-level 4xx is a poison payload → permanent (2xx, `llm_permanent_failure` event). A billed-but-malformed completion (schema parse failure, empty structured output) gets **one in-process retry**, then goes permanent — queue-level retries would pay full price again with low odds of a different outcome. Chat models are constructed with `max_retries=0` so LangChain does not multiply spend or defeat this queue accounting.
 * **Within-handler vs cross-handler orchestration.** `TaskQueue` is still the cross-handler orchestrator (at-least-once delivery, idempotency, the 2xx/5xx contract, verify's regenerate-once enqueue of `generate-resume`). LangGraph runs *inside* a handler. The first graph is `verify-resume` (`app/verify/graph.py`: deterministic → JD-blind grounding → coverage → pass / regenerate / needs_review). Future multi-step LLM workflows belong in the same pattern, not as a replacement for the queue.
 * **Follow-on enqueues dispatch only after the handler's transaction commits.** Handlers wrap the queue in `BufferedTaskQueue` and flush after `session.commit()`. The local queue delivers from a background thread immediately, so an enqueue mid-transaction can race the commit: the child handler sees `not_found`, returns a permanent 2xx, and the stage is silently lost. If the transaction fails nothing is dispatched — redelivery of the parent task redoes the work idempotently.
-* Deterministic Cloud Tasks names (hash of the natural key) are the target redelivery-dedup design; neither queue implementation sets a task name yet (`docs/OPEN_ISSUES.md` §3). Handler idempotency is the current guard.
+* Deterministic Cloud Tasks names (hash of the natural key) are the target redelivery-dedup design; neither queue implementation sets a task name yet (`docs/OPEN_ISSUES.md` §3). Handler idempotency is the current guard (`extracted_at IS NULL`, `skipped_screened`, `skipped_analyzed`, `skipped_existing`).
 * Every handler writes a row to `pipeline_events` regardless of outcome.
 
 ## Queues
@@ -23,6 +23,8 @@ One Cloud Tasks queue per job type, each rate-limited independently. These are t
 | `analyze-match` | Analysis-model LLM rate limit; also bounded by the daily USD cap |
 | `generate-resume` | Frontier-model rate limit; low volume |
 | `verify-resume` | Follows generate |
+
+`fetch-link-list`, `match-batch`, and `analyze-batch` are Scheduler-invoked (locally `jobmatch match run` / `jobmatch analyze run`) rather than queued. They enqueue leaf work onto the queues above. See `docs/OPEN_ISSUES.md` §3.
 
 Set `max-concurrent-dispatches` in line with the Cloud SQL connection budget, not just the API limits.
 
