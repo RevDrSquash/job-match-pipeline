@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "python3 .cursor/hooks/guard-dev-server.py",
+        "matcher": "next (dev|start)|npm(?:\\.cmd)? (run )?(dev|start)|uvicorn",
+        "failClosed": true
+      }
+    ],
+    "stop": [
+      {
+        "command": "python3 .cursor/hooks/sweep-dev-servers.py"
+      }
+    ]
+  }
+}

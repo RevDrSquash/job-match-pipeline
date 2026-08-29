@@ -24,6 +24,7 @@ htmlcov/
 .DS_Store
 
 # Local data
+.dev-servers/
 *.log
 pgdata/
 evals/results/*.json

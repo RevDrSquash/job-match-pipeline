@@ -15,6 +15,7 @@ Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `ex
 - Python 3.12+
 - Docker + Docker Compose
 - Node.js 20+ (only for running the UI dev server outside Docker)
+- `python3` on PATH (Cursor hooks; on Windows copy `python.exe` to `python3.exe` in the same install directory — a bash alias is not enough). Outside a venv, macOS/Linux users already invoke `python3`.
 
 ## Quick start (Docker)
 
@@ -23,6 +24,8 @@ First-run sequence. Details: [Skill graph](#skill-graph-esco--onet), [Seed corpu
 ```bash
 cp .env.example .env
 docker compose up --build
+# or, to diagnose occupied host ports before compose starts:
+# python -m scripts.dev up --build
 # In another terminal (or after db is healthy):
 pip install -e '.[dev]'
 alembic upgrade head
@@ -35,7 +38,7 @@ jobmatch match run --mode incremental
 - App: http://localhost:8080/health
 - UI: http://localhost:3100 (the `web` compose service; see [Local UI](#local-ui))
 - Handlers: `POST http://localhost:8080/handlers/{name}`
-- Postgres: `localhost:5432` (db `jobmatch`, user/password `postgres`)
+- Postgres: `localhost:5433` (db `jobmatch`, user/password `postgres`; container 5432)
 
 Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` against the compose DB before exercising handlers that touch Postgres.
 
@@ -147,19 +150,31 @@ Incremental matches jobs ingested or extracted since the last completed cycle ag
 
 Single-user Next.js app in [`frontend/`](frontend/) — match feed, job search at `/jobs`, skill graph explorer at `/skills`, profile editor, generation handoff, and an admin dashboard at `/admin`. It talks to the user-facing `/api/*` router on the FastAPI app (distinct from the internal `/handlers/*` workers); Next.js rewrites proxy `/api/*` to `API_BASE_URL` (default `http://localhost:8080`), so there is no CORS setup. Design: [`docs/UI.md`](docs/UI.md), "Local UI milestone".
 
-**Via Docker:** `docker compose up --build` includes the `web` service — open http://localhost:3100.
+**Via Docker:** `docker compose up --build` includes the `web` service — open http://localhost:3100. `python -m scripts.dev up [--build]` does the same after refusing to start if a foreign process already holds a compose port.
+
+**Host ports** (see [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md), Local stack):
+
+| Host port | Owner | Notes |
+| -- | -- | -- |
+| 3100 | compose `web` | Not Next's default 3000 — Windows Hyper-V often excludes 3000 (`EACCES`) |
+| 8080 | compose `app` | |
+| 5433 | compose `db` | Host 5432 is commonly taken by a native Postgres |
+| 3200–3209 | agent UI | `python -m scripts.dev web` |
+| 8180–8189 | agent API | `python -m scripts.dev api` |
 
 **Dev server against a locally running FastAPI app** (see [Local development](#local-development-without-docker-for-the-app)):
 
 ```bash
 cd frontend
 npm install
-npm run dev    # http://localhost:3100, proxies /api/* to http://localhost:8080
+python -m scripts.dev web    # first free port in 3200–3209; stop with python -m scripts.dev stop
+# Human workflow on the compose UI port:
+# npm run dev    # http://localhost:3100, proxies /api/* to http://localhost:8080
 ```
 
-Set `API_BASE_URL` if the FastAPI app is somewhere other than `localhost:8080`.
+Set `API_BASE_URL` if the FastAPI app is somewhere other than `localhost:8080`. (`python -m scripts.dev web` defaults it to `http://localhost:8080`.)
 
-The UI serves on **3100** rather than Next.js's default 3000 because Windows (Hyper-V/WSL dynamic port reservation) often places an excluded port range over 3000, making binds fail with `EACCES`. Override with `npm run dev -- -p <port>` if 3100 is taken.
+If compose fails with `ports are not available` / `port is already allocated`, run `python -m scripts.dev ports` — it names the owning PID, command line, and the kill command. Do not bind 3100/8080/5433 with a leftover `next dev` or `uvicorn`.
 
 There is no auth: the UI auto-selects the user when exactly one profile exists and offers a picker otherwise. Ingest a profile first (see [Profile CLI](#profile-cli-poc)) — with no users the UI has nothing to show, and an empty match feed usually means no match cycle has run yet (`jobmatch match run --mode incremental`).
 

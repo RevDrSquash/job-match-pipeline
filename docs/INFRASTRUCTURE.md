@@ -138,6 +138,18 @@ Handlers never enqueue directly mid-transaction: they wrap the queue in an envir
 * `QUEUE_IMPL` env var selects the implementation
 * Seed with a few hundred real postings, run the full pipeline locally
 
+Host ports are owned by compose and must not be bound by a leftover `next dev` / `uvicorn` (that collision is how `docker compose up` fails with `ports are not available` / `port is already allocated`):
+
+| Host port | Owner | Process |
+| -- | -- | -- |
+| 3100 | compose `web` | container 3000; 3100 avoids a Hyper-V excluded range over 3000 |
+| 8080 | compose `app` | |
+| 5433 | compose `db` | container 5432; 5433 avoids a native Windows Postgres on 5432 |
+| 3200–3209 | agent UI | `python -m scripts.dev web` (first free port) |
+| 8180–8189 | agent API | `python -m scripts.dev api` (first free port) |
+
+`python -m scripts.dev ports` is the port doctor: free vs expected compose container vs foreign process, with PID, command line, and the kill command. `python -m scripts.dev up` preflights the three compose ports, then runs `docker compose up`. Plain `docker compose up` is unchanged. Auto-increment on the agent ranges also covers Hyper-V `EACCES` on a single fixed port. Cursor project hooks keep agent shells off 3100/8080; they require `python3` on PATH (on Windows, copy `python.exe` to `python3.exe` in the same directory).
+
 ### What changes on deploy
 
 Same container image. `QUEUE_IMPL=cloudtasks`. Different DB connection string. That's it.

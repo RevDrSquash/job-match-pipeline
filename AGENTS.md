@@ -36,3 +36,14 @@ Current milestone: local proof of concept only. No GCP resources, no Terraform �
 * Prompts are code: any prompt change must re-run the eval suite once it exists (`docs/EVALUATION.md`, Operational discipline).
 * **If your implementation diverges from a design doc, update the doc in the same change** — the repo docs must stay true to the actual design, whether the divergence came from implementation reality or an owner decision. Deferred decisions and known inconsistencies go in `docs/OPEN_ISSUES.md`.
 * Secrets come from env vars (`.env`, gitignored). Never commit keys, and never hardcode model names deep in call sites — keep them in config.
+
+### Dev servers and host ports
+
+Never end a turn with a background process still running. Compose owns **3100** (`web`), **8080** (`app`), and **5433** (`db`). Do not bind those with `next dev`, `npm run dev`, or `uvicorn`.
+
+* Start a temporary UI with `python -m scripts.dev web` (first free port in 3200–3209). Start a temporary API with `python -m scripts.dev api` (8180–8189). Both print the URL.
+* Stop everything you started before the turn ends: `python -m scripts.dev stop`. `--keep` on the launcher is the only exception, and only when the user asked for a server to outlive the turn.
+* When a bind fails or compose reports `ports are not available` / `port is already allocated`, run `python -m scripts.dev ports` before guessing. Do not scan `netstat` by hand first.
+* Prefer `python -m scripts.dev up [--build]` over a raw `docker compose up` so occupied compose ports are diagnosed instead of failing as a bare bind error. Raw `docker compose up` still works.
+
+Project Cursor hooks enforce the same rules for agent shells (not the user's own terminal): `npm run dev` / `next dev` on 3100 is denied; `uvicorn` on 8080 asks. Hooks need `python3` on PATH.
