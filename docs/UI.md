@@ -251,7 +251,8 @@ Read endpoints (thin queries over existing models):
 | -- | -- |
 | `GET /api/users` | id, tier, quota |
 | `GET /api/profile?user_id=` | profile + filters + resolved `skills` labels (same base shape as `jobmatch profile show`) |
-| `GET /api/matches?user_id=` | single ranked list: match cards with job metadata, skill buckets as `{id, label}`, `qualification_label` / `screen_reason`, latest UI state. Ordered by label tier then `rerank_score`. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones) |
+| `GET /api/matches?user_id=` | single ranked list: match cards with job metadata, skill buckets as `{id, label}`, `qualification_label` / `screen_reason`, nullable `analysis_id` / `generation_id`, latest UI state. Ordered by label tier then `rerank_score`. One card per job: only the latest match row per job is returned (a dirty rematch after a profile edit inserts new rows and retains superseded ones) |
+| `GET /api/matches/{id}/analysis` | qualification report JSONB (`verdict`, coverage, logistics, gaps, emphasize, red flags) plus `created_at`. 404 when the match or analysis does not exist yet |
 | `GET /api/jobs?q=` | local keyword search (`ILIKE` on title, company name, location). Empty `q` returns recent jobs (`posted_at DESC`, cap 50). Card fields only: id, title, company, location, comp, posted date, `extracted_at`. No LLM calls. |
 | `GET /api/jobs/{id}` | local job detail used by job pages and the match-feed viewer: same metadata plus `url`, `raw_jd`, sanitized `raw_jd_html` (nullable; display-only), and extracted fields (`seniority`, `hard_requirements`, `nice_to_haves`) when present |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |

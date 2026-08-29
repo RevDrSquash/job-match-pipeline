@@ -13,6 +13,7 @@ from app.api.service import (
     admin_metrics,
     get_generation,
     get_job,
+    get_match_analysis,
     get_profile,
     get_skill,
     get_skill_graph,
@@ -101,6 +102,14 @@ def create_api_router() -> APIRouter:
     ) -> dict[str, list[dict[str, Any]]]:
         with db_session() as session:
             return {"matches": list_matches(session, user_id)}
+
+    @router.get("/matches/{match_id}/analysis")
+    def api_get_match_analysis(match_id: uuid.UUID) -> dict[str, Any]:
+        try:
+            with db_session() as session:
+                return get_match_analysis(session, match_id)
+        except PrivacySafeError as exc:
+            raise _client_error(exc) from None
 
     @router.get("/jobs")
     def api_search_jobs(
