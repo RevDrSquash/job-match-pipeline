@@ -257,6 +257,8 @@ Read endpoints (thin queries over existing models):
 | `GET /api/jobs/{id}` | local job detail used by job pages and the match-feed viewer: same metadata plus `url`, `raw_jd`, sanitized `raw_jd_html` (nullable; display-only), and extracted fields (`seniority`, `hard_requirements`, `nice_to_haves`) when present |
 | `GET /api/generations/{id}` | resume, claim map, verification status, job link for handoff |
 | `GET /api/admin/metrics` | funnel counts, extraction coverage %, label distribution, LLM spend |
+| `GET /api/admin/jobs` | snapshot of the four local scheduler stand-in jobs (`fetch-link-list`, `match-incremental`, `match-dirty`, `analyze-batch`): `running`, `started_at`, `finished_at`, `last_result` |
+| `GET /api/admin/companies` | `id`, `name`, `ats_provider`, `board_token` for the fetch-link-list company picker |
 | `GET /api/skills/stats` | taxonomy health: concept counts by `concept_type`, alias counts by `alias_type`, `source_concept` counts by source/version, edge counts per layer (`canonical` vs `source`). Canonical edges are 0 until the graph is rebuilt with ESCO `broaderRelationsSkillPillar_en.csv` |
 | `GET /api/skills/search?q=` | typeahead over `concept_alias`: exact `normalized_alias` match first, then pg_trgm similarity, deterministic (`similarity DESC, concept_id`). `{results: [{id, label, concept_type, matched_alias}]}` |
 | `GET /api/skills/{id}` | concept detail: canonical fields, aliases grouped by `alias_type`, source mappings joined to `source_concept` (ESCO URI / O*NET id, mapping method, confidence) |
@@ -269,8 +271,15 @@ Write endpoints:
 | `PATCH /api/profile` | same service path as `jobmatch profile edit`; response includes re-scan messaging |
 | `POST /api/matches/{id}/events` | feedback actions (vocabulary below) |
 | `POST /api/matches/{id}/generate` | enqueue `generate-resume` (consumes quota); no-op when a generation already exists; `quota_exhausted` when empty |
+| `POST /api/admin/jobs/{job_id}/run` | start a pipeline job in a background thread that POSTs `/handlers/{name}` (same path as the CLI). Fetch body may include optional `company_id`; omit it to run every company sequentially. Returns `{"status": "started"}`, or 409 if that job (or the match concurrency group) is already running |
 
 Resume upload stays CLI-only for this milestone.
+
+### Admin job triggers (this cut)
+
+`/admin` has buttons for the four jobs that Cloud Scheduler will own in production: fetch link lists (with an optional company picker, defaulting to all companies), incremental match, dirty-profile match, and analyze-batch. The frontend polls `GET /api/admin/jobs` and never talks to `/handlers/*`.
+
+Running state lives in an **in-memory registry** in the API process. That is accurate for the local PoC because the API and handlers are the same process; it resets on restart and is not shared across workers. `match-incremental` and `match-dirty` share a concurrency group — while either runs, both report running and a second start is 409 — because both POST the unlocked `match-batch` handler and overlapping cycles would double-enqueue work.
 
 ### Local job search (this cut)
 
