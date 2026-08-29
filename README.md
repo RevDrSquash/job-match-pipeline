@@ -8,7 +8,7 @@ Design docs live in [`docs/`](docs/README.md) and are the source of truth for al
 
 ## Status
 
-Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), canonical ESCO + O*NET skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app + web UI), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, `jobmatch evals run` for the four non-negotiable evals, and a local single-user Next.js UI (see [Local UI](#local-ui)). No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
+Local proof-of-concept. FastAPI handlers (`fetch-link-list` / `ingest-job` / `extract-job` / `match-batch` / `screen-job` / `analyze-batch` / `analyze-match` / `generate-resume` / `verify-resume`), ATS adapters (Greenhouse, Lever, Ashby), canonical ESCO + O*NET skill linking, `TaskQueue` abstraction (`QUEUE_IMPL=local|cloudtasks`), docker-compose (pgvector Postgres + app + web UI), Alembic migrations, a `job-match-seed` CLI for the ~500-posting corpus, a `jobmatch` CLI for profile ingest and match cycles, `jobmatch evals run` for the four non-negotiable evals, and a local single-user Next.js UI (see [Local UI](#local-ui)). No GCP resources yet — everything runs locally with `QUEUE_IMPL=local`.
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ jobmatch match run --mode incremental
 
 Schema migrations live in `alembic/versions/`. Run `alembic upgrade head` against the compose DB before exercising handlers that touch Postgres.
 
-Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `generate-resume`, `verify-resume`. Profile ingest and match cycles are documented under [Profile CLI](#profile-cli-poc).
+Handler names: `fetch-link-list`, `ingest-job`, `extract-job`, `match-batch`, `screen-job`, `analyze-batch`, `analyze-match`, `generate-resume`, `verify-resume`. Profile ingest and match cycles are documented under [Profile CLI](#profile-cli-poc).
 
 ### Seed corpus (~500 postings)
 
@@ -78,6 +78,19 @@ curl -s -X POST http://localhost:8080/handlers/screen-job \
 ```
 
 Re-POSTing the same `match_id` is a no-op. Every label is persisted (`qualification_label` / `screen_reason`). Screening does not enqueue `generate-resume` or consume quota — generation is manual from the UI. Profile text is never logged.
+
+Analyze screened matches best-first within a daily USD cap (`ANALYSIS_DAILY_BUDGET_USD`, default $0.50). Run after each match cycle:
+
+```bash
+# Live analysis needs LLM_API_KEY (ANALYSIS_MODEL, default gemini-3.5-flash).
+jobmatch analyze run
+# or:
+curl -s -X POST http://localhost:8080/handlers/analyze-batch \
+  -H 'content-type: application/json' \
+  -d '{}'
+```
+
+Each `analyze-match` writes a `match_analyses` row (fit verdict + logistics checklist). Re-POSTing the same `match_id` is a no-op. Analysis text is never logged.
 
 Generate a resume for a screened match (three skill buckets, cached work-history prefix, claim → source-span map), then verify it:
 
@@ -125,9 +138,10 @@ jobmatch profile edit <uuid> --comp-floor 140000
 ```bash
 jobmatch match run --mode incremental
 jobmatch match run --mode dirty
+jobmatch analyze run
 ```
 
-Incremental matches jobs ingested or extracted since the last completed cycle against all profiles that have a `user_filters` row. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`.
+Incremental matches jobs ingested or extracted since the last completed cycle against all profiles that have a `user_filters` row. Dirty scans the full corpus for profiles with `rematch_needed` (capped per run) and clears the flag. Unextracted prefilter survivors enqueue `extract-job` and wait for the next cycle; the following cycle writes `matches` and enqueues `screen-job`. `analyze run` then spends the daily analysis budget on the best screened, still-unanalyzed matches.
 
 ## Local UI
 

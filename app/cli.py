@@ -5,6 +5,7 @@ Usage:
   jobmatch profile show [--user-id UUID]
   jobmatch profile edit <user-id> [corrections...]
   jobmatch match run --mode incremental|dirty
+  jobmatch analyze run
   jobmatch evals run [--suite NAME]
 """
 
@@ -46,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
             return _dispatch_profile(args)
         if args.command == "match":
             return _dispatch_match(args)
+        if args.command == "analyze":
+            return _dispatch_analyze(args)
         if args.command == "evals":
             return _dispatch_evals(args)
         if args.command == "poc":
@@ -134,6 +137,29 @@ def _build_parser() -> argparse.ArgumentParser:
         "--cycle-at",
         default=None,
         help="ISO-8601 cycle timestamp (tests / idempotent redelivery)",
+    )
+
+    analyze = sub.add_parser(
+        "analyze",
+        help="Trigger a budgeted analyze-batch cycle (run after each match cycle)",
+    )
+    analyze_sub = analyze.add_subparsers(dest="analyze_command", required=True)
+    analyze_run = analyze_sub.add_parser(
+        "run",
+        help="POST /handlers/analyze-batch (daily USD cap, best-matches-first)",
+    )
+    analyze_run.add_argument(
+        "--base-url",
+        default=None,
+        help="Handler base URL (default: LOCAL_QUEUE_BASE_URL)",
+    )
+    analyze_run.add_argument(
+        "--user-id",
+        action="append",
+        dest="user_ids",
+        default=None,
+        type=uuid.UUID,
+        help="Scope to this user (repeatable; debug / tests)",
     )
 
     evals = sub.add_parser("evals", help="Run the four non-negotiable eval suites")
@@ -351,6 +377,27 @@ def _dispatch_match(args: argparse.Namespace) -> int:
         response = httpx.post(url, json=payload, timeout=120.0)
     except httpx.HTTPError as exc:
         print(f"error: match-batch request failed ({type(exc).__name__})", file=sys.stderr)
+        return 1
+    print(response.text)
+    if response.status_code >= 400:
+        print(f"error: handler returned {response.status_code}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _dispatch_analyze(args: argparse.Namespace) -> int:
+    if args.analyze_command != "run":
+        return 2
+    settings = get_settings()
+    base = (args.base_url or settings.local_queue_base_url).rstrip("/")
+    url = f"{base}/handlers/analyze-batch"
+    payload: dict[str, object] = {}
+    if args.user_ids:
+        payload["user_ids"] = [str(uid) for uid in args.user_ids]
+    try:
+        response = httpx.post(url, json=payload, timeout=120.0)
+    except httpx.HTTPError as exc:
+        print(f"error: analyze-batch request failed ({type(exc).__name__})", file=sys.stderr)
         return 1
     print(response.text)
     if response.status_code >= 400:

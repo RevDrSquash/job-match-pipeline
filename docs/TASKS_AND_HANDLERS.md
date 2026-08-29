@@ -20,6 +20,7 @@ One Cloud Tasks queue per job type, each rate-limited independently. These are t
 | `ingest-job` | Source job-board API rate limit |
 | `extract-job` | Cheap-model LLM rate limit; bursty on new-user onboarding |
 | `screen-job` | Cheap-model LLM rate limit |
+| `analyze-match` | Analysis-model LLM rate limit; also bounded by the daily USD cap |
 | `generate-resume` | Frontier-model rate limit; low volume |
 | `verify-resume` | Follows generate |
 
@@ -170,7 +171,7 @@ Step 2 means a newly-matched job takes two cycles (~10 min) to reach screening t
 
 The label is a ranking signal, not a verdict. `confidence` is logged, not persisted. Ranking in the match feed is label tier first (clearly_qualified highest; NULL / unscreened last), then `rerank_score` within a tier.
 
-**The label measures qualification fit only** — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes: the prompt instructs the model that they must not move the label or drive the reason. Location and comp preferences are the prefilter's job (`user_filters`); logistics mismatches that survive it belong in the planned qualification report, not the label (`docs/OPEN_ISSUES.md` §16).
+**The label measures qualification fit only** — skills, experience, domain, seniority. Logistics (location, relocation, work authorization, work arrangement, timezone, comp, start date) are separate axes: the prompt instructs the model that they must not move the label or drive the reason. Location and comp preferences are the prefilter's job (`user_filters`); logistics mismatches that survive it belong in the `analyze-match` qualification report, not the label (`docs/OPEN_ISSUES.md` §16).
 
 **Placement matters:** this is a *separate* call, not a judgment embedded in resume generation. Aborting inside generation means the ~8k input tokens are already paid — you save only output, roughly 45%. A separate cheap screen call keeps qualification labeling cheap; resume generation is manual and quota-gated. The pre-measurement estimate here was ~$0.005/call; **use the measured mean in [`docs/POC_RESULTS.md`](POC_RESULTS.md)** (this figure is what `docs/OPEN_ISSUES.md` §1 is about).
 
@@ -184,6 +185,54 @@ Every label stays on the ranked list for the user to triage. Generation is trigg
 * Successful screens write `pipeline_events.action = screened` with the label in `details`. Screening does not consume quota or enqueue `generate-resume`.
 * Rank/label disagreement is logged both ways as `rank_label_disagreement`: `rerank_score >= RERANK_HIGH_SCORE_THRESHOLD` (default 0.7) with `unqualified` / `minimally_qualified`, or `rerank_score <= RERANK_LOW_SCORE_THRESHOLD` (default 0.3) with `clearly_qualified`. That is the feedback-loop signal (`EVALUATION.md` operational discipline).
 * Every screen LLM call logs real `prompt_tokens` / `completion_tokens` / estimated `cost_usd` (needed for `OPEN_ISSUES.md` §1). Permanent failures (missing/invalid `match_id`, unknown match): 2xx. Retryable LLM errors: `pipeline_events` + 5xx. A permanent screen LLM failure returns 2xx (`llm_permanent_failure`) and leaves `qualification_label` NULL — no fabricated label, and the match stays screenable if re-driven.
+
+---
+
+### `analyze-batch`
+
+**Trigger:** `jobmatch analyze run` (Cloud Scheduler stand-in; run after each match cycle)
+**Volume:** 1 task per cycle
+**Scales with:** remaining daily analysis budget, not with match volume
+
+Spends `ANALYSIS_DAILY_BUDGET_USD` (default $0.50) on the analysis stage only. Computes today's spend as `SUM(pipeline_events.details->>'cost_usd')` for `stage='analyze-match'` since UTC midnight. Remaining budget ÷ `ANALYSIS_EST_COST_USD` (default $0.01, to be corrected from measurements) is the task count.
+
+Selects latest-match-per-job rows (same read rule as `GET /api/matches`) that are screened (`qualification_label IS NOT NULL`) and lack a `match_analyses` row, ordered label tier first then `rerank_score`, limited to the count. Enqueues one `analyze-match` each (`{user_id, job_id, match_id}`). Follow-on enqueues flush after commit.
+
+**PoC implementation** (`POST /handlers/analyze-batch`):
+
+* Optional payload `user_ids` scopes a cycle (debug / tests).
+* Zero remaining budget is a successful no-op (`completed`, `enqueued=0`).
+* Cycle-level `pipeline_events` (`started` / `enqueued_analyze` / `completed`) always written. Spend figures go in `completed.details`; never analysis text.
+
+---
+
+### `analyze-match`
+
+**Trigger:** `analyze-batch` (best-first, budgeted)
+**Volume:** bounded by the daily USD cap (~50/day at the $0.01 estimate)
+
+A paid qualification report: fit judgment and logistics axes side by side (`docs/OPEN_ISSUES.md` §16). Not a resume rewrite and not a yes/no gate.
+
+Inputs: `jobs.raw_jd` (fallback `synthesized_doc`), profile work history + synthesized doc, `user_filters` for the logistics checklist, and the match's three skill buckets. The missing bucket is the explicit do-not-claim list.
+
+Structured output (Pydantic → `match_analyses.analysis` JSONB):
+
+* `verdict` — 2–4 sentence qualification-only fit judgment (logistics must not appear)
+* `requirements` — per JD must-have: `{requirement, status: met|adjacent|missing|unclear, evidence}`
+* `nice_to_haves` — same shape, brief
+* `experience_alignment` — overall plus every explicit YOE minimum vs dated work history
+* `logistics` — location / arrangement / comp / authorization / timezone checklist
+* `gaps_to_address` — real candidate gaps, not resume-fixable
+* `emphasize` — strongest grounded evidence to lead with if applying
+* `red_flags` — knockout risks and JD oddities
+
+Prompt rules from the resume-toolkit `extract-job-signals` / `review-resume` skills: don't invent skills, use JD phrasing for requirements, itemize every explicit YOE minimum, distinguish candidate gaps from presentation gaps.
+
+**PoC implementation** (`POST /handlers/analyze-match` with `{user_id, job_id, match_id}`):
+
+* Analysis model: `ANALYSIS_MODEL` (default `gemini-3.5-flash`). Profile-derived output is personal information — prompt/completion text is never logged. `pipeline_events.details` gets tokens/cost/latency only.
+* Idempotency: skip when a `match_analyses` row exists for `match_id` (`skipped_analyzed`). One analysis per match row; a dirty rematch writes a new match row and becomes eligible for a fresh analysis.
+* Permanent failures (missing/invalid `match_id`, unknown match/profile, empty JD, permanent LLM failure): 2xx. Retryable LLM errors: `pipeline_events` + 5xx. Missing docs write `missing_docs` and do not insert a report.
 
 ---
 

@@ -1,7 +1,7 @@
 """Pipeline handlers.
 
 Real implementations: fetch-link-list, ingest-job, extract-job, match-batch,
-screen-job, generate-resume, verify-resume.
+screen-job, analyze-batch, analyze-match, generate-resume, verify-resume.
 
 Convention (see docs/TASKS_AND_HANDLERS.md): return 2xx on permanent failure
 after logging; 5xx only for genuinely retryable errors.
@@ -17,6 +17,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from app.analyze.batch import analyze_batch
+from app.analyze.llm import AnalysisLLM
+from app.analyze.service import analyze_match
 from app.config import Settings, get_settings
 from app.db.session import db_session
 from app.extract.embed import DocumentEmbedder
@@ -45,6 +48,8 @@ HANDLER_NAMES = (
     "extract-job",
     "match-batch",
     "screen-job",
+    "analyze-batch",
+    "analyze-match",
     "generate-resume",
     "verify-resume",
 )
@@ -85,6 +90,7 @@ def create_handlers_router(
     extract_linker: SkillLinker | None = None,
     match_reranker: Reranker | None = None,
     screen_llm: GateLLM | None = None,
+    analyze_llm: AnalysisLLM | None = None,
     generate_llm: GenerateLLM | None = None,
     verify_llm: VerifyLLM | None = None,
     skill_linker: SkillLinker | None = None,
@@ -309,6 +315,104 @@ def create_handlers_router(
             "match_id": result.match_id,
             "qualification_label": result.qualification_label,
             "hard_req_missing_count": result.hard_req_missing_count,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "cost_usd": result.cost_usd,
+        }
+
+    @router.post("/handlers/analyze-batch", name="analyze-batch")
+    def analyze_batch_handler(payload: HandlerPayload) -> dict[str, Any]:
+        body = payload.model_dump()
+        record_received("analyze-batch", body)
+        buffer = BufferedTaskQueue(queue)
+        try:
+            with db_session() as session:
+                result = analyze_batch(
+                    session,
+                    body,
+                    buffer,
+                    settings=settings,
+                )
+                session.commit()
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("analyze-batch retryable failure")
+            try:
+                with db_session() as session:
+                    record_pipeline_event(
+                        session, stage="analyze-batch", action="retryable_error"
+                    )
+                    session.commit()
+            except Exception:
+                logger.exception("analyze-batch failed to record retryable event")
+            raise HTTPException(
+                status_code=500, detail="retryable analyze-batch failure"
+            ) from None
+
+        buffer.flush()
+        return {
+            "status": "ok",
+            "handler": "analyze-batch",
+            "action": result.action,
+            "spent_usd": result.spent_usd,
+            "remaining_usd": result.remaining_usd,
+            "task_count": result.task_count,
+            "enqueued": result.enqueued,
+        }
+
+    @router.post("/handlers/analyze-match", name="analyze-match")
+    def analyze_match_handler(payload: HandlerPayload) -> dict[str, Any]:
+        body = payload.model_dump()
+        record_received("analyze-match", body)
+        raw_match_id = body.get("match_id")
+        match_uuid = _parse_uuid_or_none(raw_match_id)
+        if raw_match_id in (None, "") or match_uuid is None:
+            action = "missing_match_id" if raw_match_id in (None, "") else "invalid_match_id"
+            logger.info("analyze-match permanent failure action=%s", action)
+            _record_permanent_failure("analyze-match", action)
+            return {
+                "status": "ok",
+                "handler": "analyze-match",
+                "action": action,
+                "match_id": None,
+                "analysis_id": None,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cost_usd": 0.0,
+            }
+        try:
+            with db_session() as session:
+                try:
+                    result = analyze_match(
+                        session,
+                        body,
+                        llm=analyze_llm,
+                        settings=settings,
+                    )
+                    session.commit()
+                except RetryableLLMError:
+                    session.commit()
+                    raise
+        except RetryableLLMError:
+            logger.exception("analyze-match retryable failure")
+            raise HTTPException(
+                status_code=503, detail="retryable analyze-match failure"
+            ) from None
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("analyze-match unexpected failure")
+            raise HTTPException(
+                status_code=500, detail="retryable analyze-match failure"
+            ) from None
+
+        return {
+            "status": "ok",
+            "handler": "analyze-match",
+            "action": result.action,
+            "match_id": result.match_id,
+            "analysis_id": result.analysis_id,
             "prompt_tokens": result.prompt_tokens,
             "completion_tokens": result.completion_tokens,
             "cost_usd": result.cost_usd,
