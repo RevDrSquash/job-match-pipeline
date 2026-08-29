@@ -229,7 +229,10 @@ export default function JobSearch() {
                     <button
                       aria-pressed={job.id === selectedJobId}
                       className={styles.matchHeadingButton}
-                      onClick={() => selectJob(job.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        selectJob(job.id);
+                      }}
                       type="button"
                     >
                       <span className={styles.matchTitle}>
